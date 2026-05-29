@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- checkbox 1 (outlined rounded square) -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M35,32.5 h5 a3,3 0 0 1 3,3 v5 a3,3 0 0 1 -3,3 h-5 a3,3 0 0 1 -3,-3 v-5 a3,3 0 0 1 3,-3 z" />
+    <!-- checkbox 2 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M35,48.5 h5 a3,3 0 0 1 3,3 v5 a3,3 0 0 1 -3,3 h-5 a3,3 0 0 1 -3,-3 v-5 a3,3 0 0 1 3,-3 z" />
+    <!-- checkbox 3 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M35,64.5 h5 a3,3 0 0 1 3,3 v5 a3,3 0 0 1 -3,3 h-5 a3,3 0 0 1 -3,-3 v-5 a3,3 0 0 1 3,-3 z" />
+
+    <!-- task lines (round-capped bars, varying length) -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M52.5,38 L73,38" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M52.5,54 L67,54" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M52.5,70 L71,70" />
+</vector>
