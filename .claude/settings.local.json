@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(.\\\\gradlew.bat compileDebugKotlin --console=plain 2>&1)"
+      "PowerShell(.\\\\gradlew.bat compileDebugKotlin --console=plain 2>&1)",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)"
     ]
   }
 }
