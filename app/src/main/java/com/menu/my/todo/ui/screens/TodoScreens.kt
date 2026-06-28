@@ -1,8 +1,15 @@
 package com.menu.my.todo.ui.screens
 
+import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +36,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.Upcoming
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,6 +54,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -60,8 +69,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.model.TodoItem
@@ -232,8 +243,11 @@ fun TodoInputScreen(
     var reminderTime by remember { mutableStateOf(todoItem?.reminderTime) }
     var repeatType by remember { mutableStateOf(todoItem?.repeatType ?: RepeatType.NONE) }
     var advanceMinutes by remember { mutableIntStateOf(todoItem?.advanceReminderMinutes ?: 0) }
+    var showPermissionDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+
+    fun save() = onSaveTodo(title, description, priority, dueDate, reminderTime, repeatType, advanceMinutes)
     val locale = LocalConfiguration.current.locales[0]
     val dateSdf = remember(locale) { SimpleDateFormat("MMM dd, yyyy", locale) }
     val timeSdf = remember(locale) { SimpleDateFormat("HH:mm", locale) }
@@ -351,19 +365,56 @@ fun TodoInputScreen(
                 
                 OutlinedTextField(
                     value = if (advanceMinutes == 0) "" else advanceMinutes.toString(),
-                    onValueChange = { advanceMinutes = it.toIntOrNull() ?: 0 },
+                    onValueChange = { advanceMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, MAX_ADVANCE_MINUTES) },
                     label = { Text("Advance reminder (minutes)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
             Button(
-                onClick = { if (title.isNotBlank()) onSaveTodo(title, description, priority, dueDate, reminderTime, repeatType, advanceMinutes) },
+                onClick = {
+                    if (title.isBlank()) return@Button
+                    // Warn (once) if a reminder is set but the OS will silently drop or delay it.
+                    if (reminderTime != null &&
+                        (!areNotificationsEnabled(context) || !canScheduleExactAlarms(context))
+                    ) {
+                        showPermissionDialog = true
+                    } else {
+                        save()
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Save")
             }
         }
+    }
+
+    if (showPermissionDialog) {
+        val notificationsEnabled = areNotificationsEnabled(context)
+        val message = buildString {
+            if (!notificationsEnabled) append("• 通知权限未开启，提醒将不会显示\n")
+            if (!canScheduleExactAlarms(context)) append("• 精确闹钟权限未开启，提醒可能被延迟\n")
+            append("\n是否前往系统设置开启？")
+        }
+        AlertDialog(
+            onDismissRequest = { showPermissionDialog = false },
+            title = { Text("提醒可能无法准时送达") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPermissionDialog = false
+                    openReminderSettings(context, notificationsEnabled)
+                }) { Text("去设置") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showPermissionDialog = false
+                    save()
+                }) { Text("仍然保存") }
+            }
+        )
     }
 }
 
@@ -406,4 +457,32 @@ fun TodoListPreview() {
             onToggleTheme = {}
         )
     }
+}
+
+/** Upper bound for the "advance reminder" field (24h), guarding against absurd / overflowing input. */
+private const val MAX_ADVANCE_MINUTES = 1440
+
+private fun areNotificationsEnabled(context: Context): Boolean =
+    NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+private fun canScheduleExactAlarms(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    return alarmManager.canScheduleExactAlarms()
+}
+
+/** Opens the most relevant settings screen: notifications take priority, then exact alarms. */
+private fun openReminderSettings(context: Context, notificationsEnabled: Boolean) {
+    val intent = when {
+        !notificationsEnabled -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> Intent(
+            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+            Uri.fromParts("package", context.packageName, null)
+        )
+        else -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+    }
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(intent)
 }
