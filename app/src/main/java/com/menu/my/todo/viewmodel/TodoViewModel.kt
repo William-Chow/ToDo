@@ -14,6 +14,7 @@ import com.menu.my.todo.model.TodoItem
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.notification.ReminderManager
+import com.menu.my.todo.ui.theme.ThemeMode
 import java.util.Calendar
 
 enum class Screen {
@@ -35,12 +36,14 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     
     val todoList = mutableStateListOf<TodoItem>()
 
-    var isDarkTheme by mutableStateOf(value = false)
+    var themeMode by mutableStateOf(loadThemeMode())
         private set
 
-    var currentCategory by mutableStateOf(TodoCategory.ALL)
+    var currentCategory by mutableStateOf(loadCategory())
+        private set
     var searchQuery by mutableStateOf("")
-    var currentSort by mutableStateOf(SortOrder.MANUAL)
+    var currentSort by mutableStateOf(loadSort())
+        private set
 
     var currentScreen by mutableStateOf(Screen.List)
     var editingTodo by mutableStateOf<TodoItem?>(null)
@@ -50,13 +53,42 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadTodos()
-        isDarkTheme = prefs.getBoolean("is_dark_theme", false)
     }
 
-    fun toggleTheme() {
-        isDarkTheme = !isDarkTheme
-        prefs.edit { putBoolean("is_dark_theme", isDarkTheme) }
+    fun setTheme(mode: ThemeMode) {
+        themeMode = mode
+        prefs.edit { putString(KEY_THEME_MODE, mode.name) }
     }
+
+    fun setCategory(category: TodoCategory) {
+        currentCategory = category
+        prefs.edit { putString(KEY_CATEGORY, category.name) }
+    }
+
+    fun setSort(order: SortOrder) {
+        currentSort = order
+        prefs.edit { putString(KEY_SORT, order.name) }
+    }
+
+    private fun loadThemeMode(): ThemeMode {
+        prefs.getString(KEY_THEME_MODE, null)?.let { stored ->
+            return runCatching { ThemeMode.valueOf(stored) }.getOrDefault(ThemeMode.SYSTEM)
+        }
+        // Migrate the previous boolean dark-theme flag, if one was stored.
+        return when {
+            !prefs.contains(LEGACY_DARK_THEME) -> ThemeMode.SYSTEM
+            prefs.getBoolean(LEGACY_DARK_THEME, false) -> ThemeMode.DARK
+            else -> ThemeMode.LIGHT
+        }
+    }
+
+    private fun loadCategory(): TodoCategory =
+        runCatching { TodoCategory.valueOf(prefs.getString(KEY_CATEGORY, "") ?: "") }
+            .getOrDefault(TodoCategory.ALL)
+
+    private fun loadSort(): SortOrder =
+        runCatching { SortOrder.valueOf(prefs.getString(KEY_SORT, "") ?: "") }
+            .getOrDefault(SortOrder.MANUAL)
 
     private fun loadTodos() {
         val json = prefs.getString("todo_list", null)
@@ -200,3 +232,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 }
 
 private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
+private const val KEY_THEME_MODE = "theme_mode"
+private const val KEY_CATEGORY = "category"
+private const val KEY_SORT = "sort"
+private const val LEGACY_DARK_THEME = "is_dark_theme"

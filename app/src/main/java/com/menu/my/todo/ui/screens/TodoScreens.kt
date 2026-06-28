@@ -35,14 +35,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Brightness4
-import androidx.compose.material.icons.filled.Brightness7
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Today
@@ -102,6 +101,7 @@ import com.menu.my.todo.model.TodoItem
 import com.menu.my.todo.ui.theme.PriorityHigh
 import com.menu.my.todo.ui.theme.PriorityLow
 import com.menu.my.todo.ui.theme.PriorityMid
+import com.menu.my.todo.ui.theme.ThemeMode
 import com.menu.my.todo.ui.theme.TodoTheme
 import com.menu.my.todo.viewmodel.SortOrder
 import com.menu.my.todo.viewmodel.TodoCategory
@@ -115,7 +115,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun TodoListScreen(
     todoList: List<TodoItem>,
-    isDarkTheme: Boolean,
+    themeMode: ThemeMode,
     currentCategory: TodoCategory,
     searchQuery: String,
     currentSort: SortOrder,
@@ -129,11 +129,12 @@ fun TodoListScreen(
     onToggleDone: (TodoItem) -> Unit,
     onDeleteTodo: (Int) -> Unit,
     onUndoDelete: () -> Unit,
-    onToggleTheme: () -> Unit
+    onThemeModeChange: (ThemeMode) -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var sortMenuOpen by remember { mutableStateOf(false) }
+    var themeMenuOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -146,17 +147,23 @@ fun TodoListScreen(
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序", tint = MaterialTheme.colorScheme.onPrimary)
                         }
                         DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
-                            SortMenuItem("手动排序", SortOrder.MANUAL, currentSort) { onSortChange(it); sortMenuOpen = false }
-                            SortMenuItem("按截止日期", SortOrder.DUE_DATE, currentSort) { onSortChange(it); sortMenuOpen = false }
-                            SortMenuItem("按优先级", SortOrder.PRIORITY, currentSort) { onSortChange(it); sortMenuOpen = false }
+                            CheckableMenuItem("手动排序", SortOrder.MANUAL, currentSort) { onSortChange(it); sortMenuOpen = false }
+                            CheckableMenuItem("按截止日期", SortOrder.DUE_DATE, currentSort) { onSortChange(it); sortMenuOpen = false }
+                            CheckableMenuItem("按优先级", SortOrder.PRIORITY, currentSort) { onSortChange(it); sortMenuOpen = false }
                         }
                     }
-                    IconButton(onClick = onToggleTheme) {
-                        Icon(
-                            imageVector = if (isDarkTheme) Icons.Default.Brightness7 else Icons.Default.Brightness4,
-                            contentDescription = "Toggle Theme",
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
+                    Box {
+                        IconButton(onClick = { themeMenuOpen = true }) {
+                            Icon(Icons.Default.Palette, contentDescription = "主题", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        DropdownMenu(expanded = themeMenuOpen, onDismissRequest = { themeMenuOpen = false }) {
+                            CheckableMenuItem("跟随系统", ThemeMode.SYSTEM, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            CheckableMenuItem("浅色", ThemeMode.LIGHT, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            CheckableMenuItem("深色", ThemeMode.DARK, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                CheckableMenuItem("动态取色", ThemeMode.DYNAMIC, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            }
+                        }
                     }
                 }
             )
@@ -252,17 +259,17 @@ fun TodoListScreen(
 }
 
 @Composable
-private fun SortMenuItem(
+private fun <T> CheckableMenuItem(
     label: String,
-    order: SortOrder,
-    current: SortOrder,
-    onPick: (SortOrder) -> Unit
+    value: T,
+    current: T,
+    onPick: (T) -> Unit
 ) {
     DropdownMenuItem(
         text = { Text(label) },
-        onClick = { onPick(order) },
+        onClick = { onPick(value) },
         trailingIcon = {
-            if (current == order) Icon(Icons.Default.Check, contentDescription = null)
+            if (current == value) Icon(Icons.Default.Check, contentDescription = null)
         }
     )
 }
@@ -673,7 +680,7 @@ fun TodoListPreview() {
                     advanceReminderMinutes = 0
                 )
             ),
-            isDarkTheme = false,
+            themeMode = ThemeMode.SYSTEM,
             currentCategory = TodoCategory.ALL,
             searchQuery = "",
             currentSort = SortOrder.MANUAL,
@@ -687,7 +694,7 @@ fun TodoListPreview() {
             onToggleDone = {},
             onDeleteTodo = {},
             onUndoDelete = {},
-            onToggleTheme = {}
+            onThemeModeChange = {}
         )
     }
 }

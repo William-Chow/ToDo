@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
         setContent {
             val viewModel: TodoViewModel = viewModel()
-            TodoTheme(darkTheme = viewModel.isDarkTheme) {
+            TodoTheme(themeMode = viewModel.themeMode) {
                 TodoApp(viewModel)
             }
         }
@@ -56,15 +56,15 @@ fun TodoApp(viewModel: TodoViewModel) {
             val (todayDone, todayTotal) = viewModel.todayProgress()
             TodoListScreen(
                 todoList = viewModel.getFilteredList(),
-                isDarkTheme = viewModel.isDarkTheme,
+                themeMode = viewModel.themeMode,
                 currentCategory = viewModel.currentCategory,
                 searchQuery = viewModel.searchQuery,
                 currentSort = viewModel.currentSort,
                 todayDone = todayDone,
                 todayTotal = todayTotal,
                 onSearchChange = { viewModel.searchQuery = it },
-                onSortChange = { viewModel.currentSort = it },
-                onCategorySelected = { viewModel.currentCategory = it },
+                onSortChange = { viewModel.setSort(it) },
+                onCategorySelected = { viewModel.setCategory(it) },
                 onAddTodoClick = {
                     viewModel.editingTodo = null
                     viewModel.currentScreen = Screen.Input
@@ -76,7 +76,7 @@ fun TodoApp(viewModel: TodoViewModel) {
                 onToggleDone = { viewModel.toggleDone(it) },
                 onDeleteTodo = { viewModel.deleteTodo(it) },
                 onUndoDelete = { viewModel.undoDelete() },
-                onToggleTheme = viewModel::toggleTheme
+                onThemeModeChange = { viewModel.setTheme(it) }
             )
         }
 
