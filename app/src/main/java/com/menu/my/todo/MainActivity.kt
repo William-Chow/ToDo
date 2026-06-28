@@ -53,10 +53,17 @@ class MainActivity : ComponentActivity() {
 fun TodoApp(viewModel: TodoViewModel) {
     when (viewModel.currentScreen) {
         Screen.List -> {
+            val (todayDone, todayTotal) = viewModel.todayProgress()
             TodoListScreen(
                 todoList = viewModel.getFilteredList(),
                 isDarkTheme = viewModel.isDarkTheme,
                 currentCategory = viewModel.currentCategory,
+                searchQuery = viewModel.searchQuery,
+                currentSort = viewModel.currentSort,
+                todayDone = todayDone,
+                todayTotal = todayTotal,
+                onSearchChange = { viewModel.searchQuery = it },
+                onSortChange = { viewModel.currentSort = it },
                 onCategorySelected = { viewModel.currentCategory = it },
                 onAddTodoClick = {
                     viewModel.editingTodo = null
@@ -68,6 +75,7 @@ fun TodoApp(viewModel: TodoViewModel) {
                 },
                 onToggleDone = { viewModel.toggleDone(it) },
                 onDeleteTodo = { viewModel.deleteTodo(it) },
+                onUndoDelete = { viewModel.undoDelete() },
                 onToggleTheme = viewModel::toggleTheme
             )
         }
