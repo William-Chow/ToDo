@@ -25,6 +25,8 @@ render.experimental.xml
 # Keystore files
 *.jks
 *.keystore
+# Holds the keystore passwords in plain text — never commit.
+key.properties
 
 # Google Services (e.g. APIs or Firebase)
 google-services.json
