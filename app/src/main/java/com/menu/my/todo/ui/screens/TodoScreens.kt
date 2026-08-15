@@ -95,6 +95,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
+import com.menu.my.todo.ads.AdBanner
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.model.TodoItem
@@ -169,29 +170,32 @@ fun TodoListScreen(
             )
         },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                TodoCategory.entries.forEach { category ->
-                    NavigationBarItem(
-                        selected = currentCategory == category,
-                        onClick = { onCategorySelected(category) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        ),
-                        label = { Text(categoryLabel(category)) },
-                        icon = {
-                            val icon = when (category) {
-                                TodoCategory.TODAY -> Icons.Default.Today
-                                TodoCategory.UPCOMING -> Icons.Default.Upcoming
-                                TodoCategory.COMPLETED -> Icons.Default.CheckCircle
-                                TodoCategory.ALL -> Icons.AutoMirrored.Filled.List
+            Column {
+                AdBanner()
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    TodoCategory.entries.forEach { category ->
+                        NavigationBarItem(
+                            selected = currentCategory == category,
+                            onClick = { onCategorySelected(category) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            label = { Text(categoryLabel(category)) },
+                            icon = {
+                                val icon = when (category) {
+                                    TodoCategory.TODAY -> Icons.Default.Today
+                                    TodoCategory.UPCOMING -> Icons.Default.Upcoming
+                                    TodoCategory.COMPLETED -> Icons.Default.CheckCircle
+                                    TodoCategory.ALL -> Icons.AutoMirrored.Filled.List
+                                }
+                                Icon(imageVector = icon, contentDescription = category.name)
                             }
-                            Icon(imageVector = icon, contentDescription = category.name)
-                        }
-                    )
+                        )
+                    }
                 }
             }
         },

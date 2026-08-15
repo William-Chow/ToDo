@@ -10,12 +10,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.ads.MobileAds
 import com.menu.my.todo.ui.screens.TodoInputScreen
 import com.menu.my.todo.ui.screens.TodoListScreen
 import com.menu.my.todo.ui.theme.TodoTheme
 import com.menu.my.todo.viewmodel.Screen
 import com.menu.my.todo.viewmodel.TodoViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     // Android 13+ (API 33) requires POST_NOTIFICATIONS to be granted at runtime, otherwise
@@ -28,6 +32,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
+        // Initializing the ads SDK does disk and network I/O, so keep it off the main thread.
+        // Banner requests made before this finishes are queued by the SDK, not dropped.
+        lifecycleScope.launch(Dispatchers.IO) { MobileAds.initialize(this@MainActivity) }
         setContent {
             val viewModel: TodoViewModel = viewModel()
             TodoTheme(themeMode = viewModel.themeMode) {
