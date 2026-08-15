@@ -1,5 +1,6 @@
 package com.menu.my.todo.ads
 
+import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,10 +46,14 @@ fun AdBanner(
             this.adUnitId = adUnitId
             adListener = object : AdListener() {
                 override fun onAdLoaded() {
+                    Log.i(AD_LOG_TAG, "Banner loaded")
                     visible = true
                 }
 
                 override fun onAdFailedToLoad(error: LoadAdError) {
+                    // code 3 = no fill, normal for a freshly created unit; 1 = invalid request,
+                    // which usually means the unit ID and the manifest app ID disagree.
+                    Log.w(AD_LOG_TAG, "Banner failed: code=${error.code} ${error.message}")
                     failed = true
                 }
             }

@@ -33,10 +33,21 @@ android {
     }
     buildFeatures {
         compose = true
+        // Needed for BuildConfig.DEBUG, which selects test vs. live ad unit IDs.
+        buildConfig = true
     }
 }
 
 dependencies {
+    constraints {
+        // play-services-basement drags in fragment 1.1.0, which trips the fatal
+        // InvalidFragmentVersionForActivityResult lint on the notification permission launcher.
+        // The app never touches Fragment directly, so a constraint is enough to raise it.
+        implementation(libs.androidx.fragment) {
+            because("ads SDK pulls fragment 1.1.0; ActivityResult APIs need 1.3.0+")
+        }
+    }
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)

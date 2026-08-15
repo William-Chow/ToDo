@@ -1,17 +1,24 @@
 package com.menu.my.todo.ads
 
+import com.menu.my.todo.BuildConfig
+
 /**
- * Ad unit IDs, kept in one place so they are easy to swap.
+ * Ad unit IDs, switched by build type.
  *
- * These are Google's public test units: they always fill and never earn revenue. Requesting a
- * *real* ad unit while developing is an AdMob policy violation and can get the account suspended,
- * so keep these until the app is ready to publish, then replace both constants with the IDs from
- * the AdMob console (Ad units -> the unit's ID, format ca-app-pub-xxx/yyy) and swap the
- * APPLICATION_ID meta-data in AndroidManifest.xml too.
+ * Debug builds always request Google's public test units. Requesting a live unit while developing
+ * counts as invalid traffic and can get the AdMob account suspended, so the live IDs below are
+ * unreachable from a debug build by construction rather than by remembering to swap them back.
  *
- * See https://developers.google.com/admob/android/test-ads for the full list of test units.
+ * The app ID in AndroidManifest.xml is the live one in both build types — it only identifies the
+ * app to the SDK and is safe to use alongside test units.
  */
 object AdConfig {
-    /** Fixed-size (320x50) banner test unit, used by [AdBanner]. */
-    const val BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111"
+    private const val TEST_BANNER = "ca-app-pub-3940256099942544/6300978111"
+    private const val TEST_INTERSTITIAL = "ca-app-pub-3940256099942544/1033173712"
+
+    private const val LIVE_BANNER = "ca-app-pub-4541063798492496/2403188045"
+    private const val LIVE_INTERSTITIAL = "ca-app-pub-4541063798492496/1951958027"
+
+    val BANNER_AD_UNIT_ID = if (BuildConfig.DEBUG) TEST_BANNER else LIVE_BANNER
+    val INTERSTITIAL_AD_UNIT_ID = if (BuildConfig.DEBUG) TEST_INTERSTITIAL else LIVE_INTERSTITIAL
 }

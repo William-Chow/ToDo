@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
@@ -95,6 +96,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
+import com.google.android.gms.ads.MobileAds
+import com.menu.my.todo.BuildConfig
 import com.menu.my.todo.ads.AdBanner
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
@@ -143,6 +146,14 @@ fun TodoListScreen(
                 title = { Text("Todo List", color = MaterialTheme.colorScheme.onPrimary) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary),
                 actions = {
+                    if (BuildConfig.DEBUG) {
+                        // Ad inspector: live view of every ad request, its fill and latency.
+                        // Only works on devices registered as test devices.
+                        val context = LocalContext.current
+                        IconButton(onClick = { MobileAds.openAdInspector(context) { } }) {
+                            Icon(Icons.Default.BugReport, contentDescription = "Ad Inspector", tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
                     Box {
                         IconButton(onClick = { sortMenuOpen = true }) {
                             Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序", tint = MaterialTheme.colorScheme.onPrimary)

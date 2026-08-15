@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.ads.MobileAds
+import com.menu.my.todo.ads.InterstitialAdController
 import com.menu.my.todo.ui.screens.TodoInputScreen
 import com.menu.my.todo.ui.screens.TodoListScreen
 import com.menu.my.todo.ui.theme.TodoTheme
@@ -20,6 +21,7 @@ import com.menu.my.todo.viewmodel.Screen
 import com.menu.my.todo.viewmodel.TodoViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     // Android 13+ (API 33) requires POST_NOTIFICATIONS to be granted at runtime, otherwise
@@ -28,17 +30,23 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    private lateinit var interstitialAds: InterstitialAdController
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermissionIfNeeded()
+        interstitialAds = InterstitialAdController(this)
         // Initializing the ads SDK does disk and network I/O, so keep it off the main thread.
         // Banner requests made before this finishes are queued by the SDK, not dropped.
-        lifecycleScope.launch(Dispatchers.IO) { MobileAds.initialize(this@MainActivity) }
+        lifecycleScope.launch(Dispatchers.IO) {
+            MobileAds.initialize(this@MainActivity)
+            withContext(Dispatchers.Main) { interstitialAds.preload() }
+        }
         setContent {
             val viewModel: TodoViewModel = viewModel()
             TodoTheme(themeMode = viewModel.themeMode) {
-                TodoApp(viewModel)
+                TodoApp(viewModel, onTaskSaved = { interstitialAds.onTaskSaved() })
             }
         }
     }
@@ -57,7 +65,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TodoApp(viewModel: TodoViewModel) {
+fun TodoApp(viewModel: TodoViewModel, onTaskSaved: () -> Unit = {}) {
     when (viewModel.currentScreen) {
         Screen.List -> {
             val (todayDone, todayTotal) = viewModel.todayProgress()
@@ -107,6 +115,9 @@ fun TodoApp(viewModel: TodoViewModel) {
                         )
                     }
                     viewModel.currentScreen = Screen.List
+                    // Shown after the list is back on screen, never on top of the editor, and
+                    // rate limited inside the controller.
+                    onTaskSaved()
                 },
                 onBack = { viewModel.currentScreen = Screen.List }
             )

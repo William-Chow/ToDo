@@ -17,13 +17,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Todo">
 
-        <!-- Google's sample App ID. Replace with the real one from the AdMob console
-             (App settings -> App ID, format ca-app-pub-xxx~yyy) before publishing, along
-             with the ad unit IDs in ads/AdConfig.kt. The SDK crashes on startup if this
-             meta-data is missing. -->
+        <!-- The SDK crashes on startup if this meta-data is missing. This is the live app ID;
+             it only identifies the app, so debug builds keep it and swap the ad *unit* IDs
+             instead (see ads/AdConfig.kt). -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-4541063798492496~5688661080" />
 
         <activity
             android:name=".MainActivity"
