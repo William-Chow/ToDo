@@ -12,6 +12,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +28,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -81,6 +84,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -89,6 +93,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,6 +104,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
@@ -122,6 +129,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,14 +160,7 @@ fun TodoListScreen(
 
     // Manual sort is the only order the user owns, so it is the only one that can be dragged.
     val listState = rememberLazyListState()
-    val moveByPosition by rememberUpdatedState<(Int, Int) -> Unit> { from, to ->
-        val fromId = todoList.getOrNull(from)?.id
-        val toId = todoList.getOrNull(to)?.id
-        if (fromId != null && toId != null) onMoveTodo(fromId, toId)
-    }
-    val reorderState = remember(listState) {
-        ReorderState(listState) { from, to -> moveByPosition(from, to) }
-    }
+    val reorderState = rememberReorderState(listState, onMove = onMoveTodo)
 
     Scaffold(
         topBar = {
@@ -269,11 +270,12 @@ fun TodoListScreen(
                 EmptyState(onAddTodoClick = onAddTodoClick)
             } else {
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(todoList, key = { _, item -> item.id }) { index, item ->
-                        val dragging = reorderState.draggingPosition == index
+                    items(todoList, key = { item -> item.id }) { item ->
+                        val dragging = reorderState.draggingId == item.id
                         // The gesture key stays constant: the dragged row changes position while the
-                        // finger is down, and re-keying here would cancel the drag mid-swap.
-                        val position by rememberUpdatedState(index)
+                        // finger is down, and re-keying here would cancel the drag mid-swap. Its id
+                        // does not change, and the id is all the drag needs.
+                        val id by rememberUpdatedState(item.id)
                         TodoRow(
                             item = item,
                             onToggleDone = { onToggleDone(item) },
@@ -297,16 +299,21 @@ fun TodoListScreen(
                                 // The dragged row is placed by hand; the rest slide out of its way.
                                 .then(if (dragging) Modifier else Modifier.animateItem()),
                             dragHandleModifier = if (currentSort == SortOrder.MANUAL) {
-                                Modifier.pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = { reorderState.onDragStart(position) },
-                                        onDragEnd = { reorderState.onDragEnd() },
-                                        onDragCancel = { reorderState.onDragEnd() }
-                                    ) { change, dragAmount ->
-                                        change.consume()
-                                        reorderState.onDrag(dragAmount.y)
+                                Modifier
+                                    // A tap moves no pointers, so nothing would consume it and it
+                                    // would fall through to the Card's clickable and open the
+                                    // editor. The handle drags; it does not open anything.
+                                    .pointerInput(Unit) { detectTapGestures { } }
+                                    .pointerInput(Unit) {
+                                        detectDragGestures(
+                                            onDragStart = { reorderState.onDragStart(id) },
+                                            onDragEnd = { reorderState.onDragEnd() },
+                                            onDragCancel = { reorderState.onDragEnd() }
+                                        ) { change, dragAmount ->
+                                            change.consume()
+                                            reorderState.onDrag(dragAmount.y)
+                                        }
                                     }
-                                }
                             } else {
                                 null
                             }
@@ -318,50 +325,238 @@ fun TodoListScreen(
     }
 }
 
+// How near a viewport edge a dragged row has to be held before the list starts moving underneath
+// it, and how fast the list moves once the row is right at that edge.
+private val AUTO_SCROLL_EDGE = 96.dp
+private val AUTO_SCROLL_MAX_SPEED = 900.dp // per second
+private const val NANOS_PER_SECOND = 1_000_000_000f
+
+/**
+ * Builds the [ReorderState] for [listState] and keeps the list moving for as long as a dragged row
+ * is held against one of the viewport's edges.
+ */
+@Composable
+private fun rememberReorderState(
+    listState: LazyListState,
+    onMove: (fromId: Int, toId: Int) -> Unit
+): ReorderState {
+    val move by rememberUpdatedState(onMove)
+    val density = LocalDensity.current
+    val edge = with(density) { AUTO_SCROLL_EDGE.toPx() }
+    val maxSpeed = with(density) { AUTO_SCROLL_MAX_SPEED.toPx() }
+    val state = remember(listState, edge, maxSpeed) {
+        ReorderState(listState, edge, maxSpeed) { fromId, toId -> move(fromId, toId) }
+    }
+    LaunchedEffect(state) { state.autoScrollWhileDragging() }
+    return state
+}
+
 /**
  * Drag-to-reorder bookkeeping for the manual sort order.
  *
- * The stored list order *is* the manual order, so a drag only has to hand positions to [onMove];
+ * The stored list order *is* the manual order, so a drag only has to name the two tasks to [onMove];
  * persisting is the ViewModel's job. A swap is handed over as soon as the dragged row's own midpoint
- * falls inside another row's bounds, and only rows in [listState]'s visible window are ever
- * considered as targets — a row scrolled off screen is not one, whether or not it is a neighbour.
- * [dragOffset] is the pixel translation to apply to the row currently under the finger, and it is
- * corrected on every swap so the row stays put while the list moves around it.
+ * lands inside another row, and a drag that runs off either end of the list lands on the first or
+ * last row instead of quietly doing nothing.
+ *
+ * The row under the finger is followed by task id, and never by position. Everything positional —
+ * which row is being dragged, how far it has to be translated — is read back out of the layout the
+ * list has *right now*, so the reorder state cannot claim a move the list did not make: if the
+ * ViewModel declines the move (the task was deleted, a reminder reloaded the list under the finger)
+ * the row simply stays where it is and keeps tracking the finger. The visual follows the commit.
+ *
+ * Only rows in [listState]'s visible window can be targets, which is why holding a row near a
+ * viewport edge scrolls the list — see [autoScrollWhileDragging]. Without that a row could never
+ * travel further than one screenful, and on the default sort that is most of the list.
  */
 private class ReorderState(
     private val listState: LazyListState,
-    private val onMove: (from: Int, to: Int) -> Unit
+    private val autoScrollEdge: Float,
+    private val autoScrollMaxSpeed: Float,
+    private val onMove: (fromId: Int, toId: Int) -> Unit
 ) {
-    var draggingPosition by mutableStateOf<Int?>(null)
-        private set
-    var dragOffset by mutableFloatStateOf(0f)
+    /** Id of the task under the finger, or null when no drag is in progress. */
+    var draggingId by mutableStateOf<Int?>(null)
         private set
 
-    fun onDragStart(position: Int) {
-        draggingPosition = position
-        dragOffset = 0f
+    /** Total vertical finger travel since the drag started. */
+    private var draggedDelta by mutableFloatStateOf(0f)
+
+    /** Where in the viewport the row sat, and how tall it was, when the finger went down. */
+    private var grabbedAt = 0f
+    private var grabbedSize = 0f
+
+    /** Where the dragged row belongs on screen: where the finger has put it, and nothing else. */
+    private val drawnAt: Float get() = grabbedAt + draggedDelta
+
+    private val draggedRow: LazyListItemInfo?
+        get() = draggingId?.let { id -> rowFor(id) }
+
+    private fun rowFor(id: Int): LazyListItemInfo? =
+        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == id }
+
+    /**
+     * Pixels to translate the dragged row by. Derived from the current layout rather than
+     * accumulated, so a swap that lands and a swap that does not both leave the row under the finger.
+     */
+    val dragOffset: Float
+        get() = draggedRow?.let { drawnAt - it.offset } ?: 0f
+
+    fun onDragStart(id: Int) {
+        val row = rowFor(id) ?: return
+        draggingId = id
+        grabbedAt = row.offset.toFloat()
+        grabbedSize = row.size.toFloat()
+        draggedDelta = 0f
     }
 
+    /**
+     * Records finger travel and nothing else. Where that leaves the row is worked out once a frame
+     * by [autoScrollWhileDragging], against a layout that has actually been through a pass — several
+     * pointer events can arrive between two frames, and resolving each of them against the same
+     * stale layout would swap more than once for the same movement.
+     */
     fun onDrag(delta: Float) {
-        val position = draggingPosition ?: return
-        dragOffset += delta
-
-        val visible = listState.layoutInfo.visibleItemsInfo
-        val dragged = visible.firstOrNull { it.index == position } ?: return
-        val draggedCenter = dragged.offset + dragOffset + dragged.size / 2f
-        val target = visible.firstOrNull {
-            it.index != position && draggedCenter >= it.offset && draggedCenter <= it.offset + it.size
-        } ?: return
-
-        // The row is about to be laid out where the target sits, so take that jump out of the offset.
-        dragOffset += dragged.offset - target.offset
-        draggingPosition = target.index
-        onMove(position, target.index)
+        if (draggingId == null) return
+        draggedDelta += delta
     }
 
     fun onDragEnd() {
-        draggingPosition = null
-        dragOffset = 0f
+        draggingId = null
+        draggedDelta = 0f
+    }
+
+    /** Hands over a move once the dragged row's midpoint has landed on another row. */
+    private fun swapIfLanded() {
+        val fromId = draggingId ?: return
+        val row = draggedRow ?: return
+        val rows = listState.layoutInfo.visibleItemsInfo
+        val target = dragTarget(
+            rows = rows.map { RowBounds(it.index, it.offset.toFloat(), it.size.toFloat()) },
+            draggedIndex = row.index,
+            draggedCenter = drawnAt + row.size / 2f,
+            itemCount = listState.layoutInfo.totalItemsCount
+        ) ?: return
+        val toId = rows.firstOrNull { it.index == target.index }?.key as? Int ?: return
+
+        // A swap across the top of the window has to be pinned by position, not by key. The list
+        // keeps its scroll anchored to whichever task was showing first, so moving a task onto that
+        // slot slides the anchor down a row and lays the dragged row out just above the window —
+        // where it stops being a visible row, which is the one thing every part of this class reads
+        // the layout for. The drag would go inert with the finger still down.
+        val first = listState.firstVisibleItemIndex
+        if (row.index == first || target.index == first) {
+            listState.requestScrollToItem(first, listState.firstVisibleItemScrollOffset)
+        }
+        onMove(fromId, toId)
+    }
+
+    /**
+     * Drives the whole drag, a frame at a time, for as long as one is in progress: pulls the list
+     * along while the row is held near a viewport edge, then works out where the row has landed.
+     *
+     * Both have to happen every frame rather than on each drag event. The rows slide under a finger
+     * that is not itself moving, so the events stop arriving exactly when the reorder needs them
+     * most — and they stop for good once the list reaches its end and there is nothing left to
+     * scroll, which is precisely when the row is over the first or last slot it was aiming for.
+     */
+    suspend fun autoScrollWhileDragging() {
+        snapshotFlow { draggingId != null }.collectLatest { dragging ->
+            if (!dragging) return@collectLatest
+            var previousFrame = 0L
+            while (true) {
+                val step = withFrameNanos { frame ->
+                    val seconds =
+                        if (previousFrame == 0L) 0f else (frame - previousFrame) / NANOS_PER_SECOND
+                    previousFrame = frame
+                    currentScrollSpeed() * seconds
+                }
+                if (step != 0f) listState.scrollBy(step)
+                swapIfLanded()
+            }
+        }
+    }
+
+    /**
+     * Pixels per second the list should travel under the dragged row, negative towards its start.
+     *
+     * Measured from where the finger is, not from where the row is laid out, so that a row which
+     * has ended up outside the window is scrolled *back into* it rather than stranded there.
+     */
+    private fun currentScrollSpeed(): Float {
+        if (draggingId == null) return 0f
+        val info = listState.layoutInfo
+        val speed = edgeScrollSpeed(
+            rowStart = drawnAt,
+            rowEnd = drawnAt + grabbedSize,
+            viewportStart = info.viewportStartOffset.toFloat(),
+            viewportEnd = info.viewportEndOffset.toFloat(),
+            edge = autoScrollEdge,
+            maxSpeed = autoScrollMaxSpeed
+        )
+        return when {
+            speed > 0f && !listState.canScrollForward -> 0f
+            speed < 0f && !listState.canScrollBackward -> 0f
+            else -> speed
+        }
+    }
+}
+
+/** One laid-out row, reduced to what target resolution needs of it. */
+internal data class RowBounds(val index: Int, val start: Float, val size: Float) {
+    val end: Float get() = start + size
+}
+
+/**
+ * The row that a dragged row whose midpoint sits at [draggedCenter] should change places with, or
+ * null when it should stay where it is. [rows] is the laid-out window in index order, and
+ * [itemCount] is the length of the whole list, most of which may not be in it.
+ *
+ * Landing inside a row picks that row, however far away it is — a fast drag skips rows rather than
+ * walking them. Past either end the drag clamps onto the outermost row, but only once that row is
+ * the list's own first or last: while there is still list off screen the answer is "not yet", and
+ * the auto-scroll brings the rest of it into view.
+ */
+internal fun dragTarget(
+    rows: List<RowBounds>,
+    draggedIndex: Int,
+    draggedCenter: Float,
+    itemCount: Int
+): RowBounds? {
+    rows.firstOrNull {
+        it.index != draggedIndex && draggedCenter >= it.start && draggedCenter <= it.end
+    }?.let { return it }
+
+    val first = rows.firstOrNull() ?: return null
+    val last = rows.last()
+    return when {
+        draggedCenter < first.start && first.index == 0 -> first
+        draggedCenter > last.end && last.index == itemCount - 1 -> last
+        else -> null
+    }?.takeIf { it.index != draggedIndex }
+}
+
+/**
+ * How fast, in pixels per second, the list should travel under a dragged row occupying
+ * [rowStart]..[rowEnd] — negative towards the start of the list, zero when the row is clear of both
+ * edges. The speed ramps from nothing at [edge] pixels inside the viewport boundary up to [maxSpeed]
+ * at the boundary itself, which spreads the slow, aimable part of the range across most of the band.
+ */
+internal fun edgeScrollSpeed(
+    rowStart: Float,
+    rowEnd: Float,
+    viewportStart: Float,
+    viewportEnd: Float,
+    edge: Float,
+    maxSpeed: Float
+): Float {
+    if (edge <= 0f) return 0f
+    val intoStart = (viewportStart + edge) - rowStart
+    val intoEnd = rowEnd - (viewportEnd - edge)
+    return when {
+        intoEnd > 0f && intoEnd > intoStart -> maxSpeed * (intoEnd / edge).coerceAtMost(1f)
+        intoStart > 0f && intoStart > intoEnd -> -maxSpeed * (intoStart / edge).coerceAtMost(1f)
+        else -> 0f
     }
 }
 

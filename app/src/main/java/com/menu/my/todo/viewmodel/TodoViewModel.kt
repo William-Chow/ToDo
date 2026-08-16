@@ -233,11 +233,18 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Moves the task [fromId] to where [toId] sits — the manual order is the list order itself. */
+    /**
+     * Moves the task [fromId] to where [toId] sits — the manual order is the list order itself.
+     *
+     * Both ends are named by id rather than by position because the list the drag is reading is the
+     * filtered, on-screen one, not this one, and it can have changed since the finger went down.
+     * That also makes a reorder performed under a search or a category filter well defined: only the
+     * dragged task changes position, so every task the filter hid keeps its order relative to every
+     * other task, and the manual order the user sees when they clear the filter is the one they left.
+     * See [moveIndices].
+     */
     fun moveTodo(fromId: Int, toId: Int) {
-        val from = todoList.indexOfFirst { it.id == fromId }
-        val to = todoList.indexOfFirst { it.id == toId }
-        if (from == -1 || to == -1 || from == to) return
+        val (from, to) = moveIndices(todoList, fromId, toId) ?: return
         todoList.add(to, todoList.removeAt(from))
         saveTodos()
     }
@@ -269,6 +276,20 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         val updatedItem = item.copy(isDone = !item.isDone)
         updateTodo(updatedItem)
     }
+}
+
+/**
+ * The take-from and put-back-to positions for moving the task [fromId] onto [toId]'s place in
+ * [current], or null when there is nothing to do — either id can have gone from the list since the
+ * drag that asked for the move began, and a drag that resolves onto its own row asks for no move.
+ *
+ * Applying it is `add(to, removeAt(from))`. Removing first is what makes a downward move land
+ * *after* the target rather than in front of it, which is what a finger dragged past a row means.
+ */
+internal fun moveIndices(current: List<TodoItem>, fromId: Int, toId: Int): Pair<Int, Int>? {
+    val from = current.indexOfFirst { it.id == fromId }
+    val to = current.indexOfFirst { it.id == toId }
+    return if (from == -1 || to == -1 || from == to) null else from to to
 }
 
 /**
