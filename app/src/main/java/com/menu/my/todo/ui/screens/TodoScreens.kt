@@ -321,10 +321,12 @@ fun TodoListScreen(
 /**
  * Drag-to-reorder bookkeeping for the manual sort order.
  *
- * The stored list order *is* the manual order, so a drag only has to hand neighbouring positions to
- * [onMove] as the dragged row passes their midpoint; persisting is the ViewModel's job. [dragOffset]
- * is the pixel translation to apply to the row currently under the finger, and it is corrected on
- * every swap so the row stays put while the list moves around it.
+ * The stored list order *is* the manual order, so a drag only has to hand positions to [onMove];
+ * persisting is the ViewModel's job. A swap is handed over as soon as the dragged row's own midpoint
+ * falls inside another row's bounds, and only rows in [listState]'s visible window are ever
+ * considered as targets — a row scrolled off screen is not one, whether or not it is a neighbour.
+ * [dragOffset] is the pixel translation to apply to the row currently under the finger, and it is
+ * corrected on every swap so the row stays put while the list moves around it.
  */
 private class ReorderState(
     private val listState: LazyListState,

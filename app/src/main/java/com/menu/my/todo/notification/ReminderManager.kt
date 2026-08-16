@@ -7,6 +7,8 @@ import android.content.Intent
 import android.os.Build
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.model.TodoItem
+import java.util.Calendar
+import java.util.TimeZone
 
 class ReminderManager(private val context: Context) {
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -41,6 +43,8 @@ class ReminderManager(private val context: Context) {
     /**
      * Queues the next cycle of a repeating reminder. Called by ReminderReceiver right after it shows
      * a notification, so daily/weekly reminders keep firing exactly without relying on setRepeating.
+     * The next cycle is a calendar step, not a fixed number of milliseconds, so an "every day at
+     * 8:00" reminder is still at 8:00 on the far side of a daylight-saving change.
      */
     fun scheduleNext(
         todoId: Int,
@@ -49,8 +53,8 @@ class ReminderManager(private val context: Context) {
         repeatType: RepeatType,
         lastTrigger: Long
     ) {
-        val interval = repeatType.intervalMillis ?: return
-        val triggerTime = rollForward(lastTrigger + interval, interval)
+        if (repeatType.intervalMillis == null) return
+        val triggerTime = rollForward(repeatType.occurrenceAfter(lastTrigger, 1), repeatType)
         schedule(todoId, title, description, repeatType, triggerTime)
     }
 
@@ -81,18 +85,15 @@ class ReminderManager(private val context: Context) {
 
     /** Next future trigger time, or null for a one-shot reminder whose time has already passed. */
     private fun nextOccurrence(baseTrigger: Long, repeatType: RepeatType): Long? {
-        val interval = repeatType.intervalMillis
-            ?: return baseTrigger.takeIf { it >= System.currentTimeMillis() }
-        return rollForward(baseTrigger, interval)
+        if (repeatType.intervalMillis == null) {
+            return baseTrigger.takeIf { it >= System.currentTimeMillis() }
+        }
+        return rollForward(baseTrigger, repeatType)
     }
 
-    /** Advances [start] by whole [interval]s until it lands in the future. */
-    private fun rollForward(start: Long, interval: Long): Long {
-        val now = System.currentTimeMillis()
-        if (start >= now) return start
-        val cyclesMissed = (now - start) / interval + 1
-        return start + cyclesMissed * interval
-    }
+    /** Advances [start] by whole repeat cycles until it lands in the future. */
+    private fun rollForward(start: Long, repeatType: RepeatType): Long =
+        repeatType.occurrenceAtOrAfter(start, System.currentTimeMillis())
 
     /**
      * Schedules a one-shot exact alarm. On Android 12+ (API 31) exact alarms require the
@@ -138,10 +139,59 @@ class ReminderManager(private val context: Context) {
 
 internal const val MILLIS_PER_MINUTE = 60_000L
 
-/** Repeat interval in millis, or null for a non-repeating reminder. */
+/**
+ * Nominal repeat interval in millis, or null for a non-repeating reminder. Nominal because a
+ * calendar day is 23 or 25 hours long around a daylight-saving change: this is only used to ask
+ * "roughly how many cycles is that?", never to move a timestamp — [occurrenceAfter] does that.
+ */
 internal val RepeatType.intervalMillis: Long?
     get() = when (this) {
         RepeatType.NONE -> null
         RepeatType.DAILY -> AlarmManager.INTERVAL_DAY
         RepeatType.WEEKLY -> AlarmManager.INTERVAL_DAY * 7
     }
+
+/**
+ * [start] moved on by [cycles] whole repeat cycles, as a wall-clock step in [zone]: calendar days
+ * and weeks, not fixed blocks of milliseconds. Adding milliseconds instead shifts the time of day
+ * by an hour across a daylight-saving change, and — because a due date is stored as the midnight
+ * that starts the day — that hour is enough to land a daily task on the wrong calendar day.
+ */
+internal fun RepeatType.occurrenceAfter(
+    start: Long,
+    cycles: Int,
+    zone: TimeZone = TimeZone.getDefault()
+): Long {
+    if (cycles == 0) return start
+    val calendar = Calendar.getInstance(zone).apply { timeInMillis = start }
+    when (this) {
+        RepeatType.NONE -> return start
+        RepeatType.DAILY -> calendar.add(Calendar.DAY_OF_MONTH, cycles)
+        RepeatType.WEEKLY -> calendar.add(Calendar.WEEK_OF_YEAR, cycles)
+    }
+    return calendar.timeInMillis
+}
+
+/**
+ * The first occurrence at or after [now], counting whole cycles from [start] (which is returned
+ * unchanged for a non-repeating reminder, or one that is still in the future).
+ *
+ * The nominal interval only estimates how far ahead that is, and the estimate is deliberately one
+ * cycle short: cycles that cross a daylight-saving change are shorter or longer than nominal, so
+ * the last step or two is walked one calendar cycle at a time.
+ */
+internal fun RepeatType.occurrenceAtOrAfter(
+    start: Long,
+    now: Long,
+    zone: TimeZone = TimeZone.getDefault()
+): Long {
+    val interval = intervalMillis ?: return start
+    if (start >= now) return start
+    var cycles = ((now - start) / interval - 1).coerceAtLeast(0L).toInt()
+    var occurrence = occurrenceAfter(start, cycles, zone)
+    while (occurrence < now) {
+        cycles++
+        occurrence = occurrenceAfter(start, cycles, zone)
+    }
+    return occurrence
+}

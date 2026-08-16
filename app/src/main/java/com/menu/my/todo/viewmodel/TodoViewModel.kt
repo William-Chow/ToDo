@@ -31,7 +31,14 @@ enum class SortOrder {
 class TodoViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = TodoStorage.prefs(application)
     private val reminderManager = ReminderManager(application)
-    
+    // Seeded here rather than at the first add: the stored list is the only record of which ids have
+    // been used, and it only shrinks (see [TodoIdCounter]).
+    private val idCounter = TodoIdCounter(
+        stored = if (prefs.contains(KEY_NEXT_ID)) prefs.getInt(KEY_NEXT_ID, 0) else null,
+        existing = TodoStorage.load(prefs).orEmpty(),
+        persist = { next -> prefs.edit { putInt(KEY_NEXT_ID, next) } }
+    )
+
     val todoList = mutableStateListOf<TodoItem>()
 
     var themeMode by mutableStateOf(loadThemeMode())
@@ -170,7 +177,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         repeatType: RepeatType = RepeatType.NONE,
         advanceMinutes: Int = 0
     ) {
-        val id = nextTodoId()
+        val id = idCounter.next()
         val item = TodoItem(
             id = id, 
             title = title, 
@@ -188,14 +195,32 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Ids are handed out from a persisted counter and never reused: they double as notification ids
-     * and as PendingIntent request codes, so recycling one (which the old "max id + 1" did as soon
-     * as the list was emptied) lets a deleted task's notification or alarm land on a new task.
+     * Saves what the editor produced onto the task it was opened for. The editor holds a snapshot
+     * taken when it opened, so the merge goes through [mergeEditorResult] instead of writing that
+     * snapshot back wholesale.
      */
-    private fun nextTodoId(): Int {
-        val id = maxOf(prefs.getInt(KEY_NEXT_ID, 0), (todoList.maxOfOrNull { it.id } ?: -1) + 1)
-        prefs.edit { putInt(KEY_NEXT_ID, id + 1) }
-        return id
+    fun saveEditedTodo(
+        title: String,
+        description: String,
+        priority: Priority,
+        dueDate: Long?,
+        reminderTime: Long?,
+        repeatType: RepeatType,
+        advanceMinutes: Int
+    ) {
+        val editing = editingTodo ?: return
+        val merged = mergeEditorResult(
+            current = todoList,
+            editing = editing,
+            title = title,
+            description = description,
+            priority = priority,
+            dueDate = dueDate,
+            reminderTime = reminderTime,
+            repeatType = repeatType,
+            advanceMinutes = advanceMinutes
+        ) ?: return
+        updateTodo(merged)
     }
 
     fun updateTodo(updatedItem: TodoItem) {
@@ -231,6 +256,10 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     fun undoDelete() {
         val (index, item) = lastDeleted ?: return
         lastDeleted = null
+        // The snapshot is as stale as the editor's (see [mergeEditorResult]): the list can have been
+        // reloaded from storage since the delete. If the id is back in it, an outside write already
+        // restored the task, and adding the snapshot too would give two tasks the same id.
+        if (todoList.any { it.id == item.id }) return
         todoList.add(index.coerceAtMost(todoList.size), item)
         saveTodos()
         reminderManager.scheduleReminder(item)
@@ -239,6 +268,72 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleDone(item: TodoItem) {
         val updatedItem = item.copy(isDone = !item.isDone)
         updateTodo(updatedItem)
+    }
+}
+
+/**
+ * What a save from the editor should write: the fields the editor owns, applied to the task as it
+ * is stored *now*. Returns null when that task has since disappeared from [current].
+ *
+ * [editing] is the snapshot the editor opened with, and it can be minutes old: ReminderReceiver
+ * rolls a repeating task onto its next occurrence — clearing the done tick and moving the dates —
+ * in this same process, while the editor sits open. Writing the snapshot back would silently undo
+ * that, re-marking the task done. So completion (and anything else the editor cannot change) comes
+ * from the stored task outright, and a date the user did not touch keeps the stored value rather
+ * than the one the editor was seeded with.
+ */
+internal fun mergeEditorResult(
+    current: List<TodoItem>,
+    editing: TodoItem,
+    title: String,
+    description: String,
+    priority: Priority,
+    dueDate: Long?,
+    reminderTime: Long?,
+    repeatType: RepeatType,
+    advanceMinutes: Int
+): TodoItem? {
+    val stored = current.firstOrNull { it.id == editing.id } ?: return null
+    return stored.copy(
+        title = title,
+        description = description,
+        priority = priority,
+        dueDate = if (dueDate == editing.dueDate) stored.dueDate else dueDate,
+        reminderTime = if (reminderTime == editing.reminderTime) stored.reminderTime else reminderTime,
+        repeatType = repeatType,
+        advanceReminderMinutes = advanceMinutes
+    )
+}
+
+/**
+ * Hands out todo ids. They double as notification ids and PendingIntent request codes, so a new
+ * task must not inherit an id a removed task's notification or alarm can still land on.
+ *
+ * The counter only moves forward and is persisted on every hand-out, so ids are not recycled when
+ * the list shrinks. On an install from before the counter existed [stored] is absent and it is
+ * seeded once, eagerly, from the ids [existing] holds at that moment — that list is the whole
+ * record. Two things follow, and neither is fixable from here: ids of tasks deleted *before* the
+ * upgrade are unknown, so one of them can be handed out once (including id 0 when the upgraded list
+ * is empty), and ids left in gaps by those deletions are reused once too. Seeding lazily at the
+ * first add — as the old "max id + 1" did — would widen that hole to cover every task deleted
+ * between the upgrade and that add, which is why it happens as soon as the list is read.
+ */
+internal class TodoIdCounter(
+    stored: Int?,
+    existing: List<TodoItem>,
+    private val persist: (Int) -> Unit
+) {
+    private var next: Int = stored ?: ((existing.maxOfOrNull { it.id } ?: -1) + 1)
+
+    init {
+        if (stored == null) persist(next)
+    }
+
+    fun next(): Int {
+        val id = next
+        next = id + 1
+        persist(next)
+        return id
     }
 }
 

@@ -103,17 +103,9 @@ fun TodoApp(viewModel: TodoViewModel, onTaskSaved: () -> Unit = {}) {
                     if (viewModel.editingTodo == null) {
                         viewModel.addTodo(title, desc, priority, dueDate, reminderTime, repeatType, advance)
                     } else {
-                        viewModel.updateTodo(
-                            viewModel.editingTodo!!.copy(
-                                title = title,
-                                description = desc,
-                                priority = priority,
-                                dueDate = dueDate,
-                                reminderTime = reminderTime,
-                                repeatType = repeatType,
-                                advanceReminderMinutes = advance
-                            )
-                        )
+                        // Merged onto the stored task, not onto the snapshot the editor opened with,
+                        // which a reminder firing meanwhile can have left behind.
+                        viewModel.saveEditedTodo(title, desc, priority, dueDate, reminderTime, repeatType, advance)
                     }
                     viewModel.currentScreen = Screen.List
                     // Shown after the list is back on screen, never on top of the editor, and

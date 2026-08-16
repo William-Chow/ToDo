@@ -13,6 +13,8 @@ import com.menu.my.todo.R
 import com.menu.my.todo.data.TodoStorage
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.model.TodoItem
+import java.util.TimeZone
+import kotlin.math.roundToInt
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -36,7 +38,13 @@ class ReminderReceiver : BroadcastReceiver() {
     /**
      * Moves the stored task onto the occurrence this alarm is for. Notifying alone leaves the task
      * behind: a completed "daily" task would stay COMPLETED forever, and an untouched one would keep
-     * its original due date and drop out of the TODAY filter the next day.
+     * the due date of its very first occurrence.
+     *
+     * The roll only happens when an alarm fires, so the due date trails the calendar: it names the
+     * occurrence that is *ending*, not the one coming up. A daily task with a 22:00 reminder is
+     * therefore not in the TODAY filter at noon — it gets there at 22:00. Matching the filter would
+     * mean rolling on a date boundary (or lazily, on read) instead, which is more than a broadcast
+     * receiver can do.
      */
     private fun advanceRepeatingTodo(context: Context, todoId: Int, triggerTime: Long) {
         val prefs = TodoStorage.prefs(context)
@@ -84,23 +92,32 @@ class ReminderReceiver : BroadcastReceiver() {
 
 /**
  * This task rolled onto the occurrence the alarm at [triggerTime] belongs to: the due date and the
- * reminder time step forward by however many whole repeat intervals have passed since the first
+ * reminder time step forward by however many whole repeat cycles have passed since the first
  * trigger, and the task counts as not done again. Returns null when there is nothing to move — the
  * task does not repeat, has no reminder, or the alarm is still the first occurrence's.
+ *
+ * The steps are calendar days and weeks in [zone] (the device's own by default), so a task keeps
+ * its time of day and lands on every calendar day even across a daylight-saving change.
  */
-internal fun TodoItem.advanceToOccurrence(triggerTime: Long): TodoItem? {
-    val interval = (repeatType ?: RepeatType.NONE).intervalMillis ?: return null
+internal fun TodoItem.advanceToOccurrence(
+    triggerTime: Long,
+    zone: TimeZone = TimeZone.getDefault()
+): TodoItem? {
+    val repeat = repeatType ?: RepeatType.NONE
+    val interval = repeat.intervalMillis ?: return null
     val reminder = reminderTime ?: return null
     // Alarms are set for the reminder time minus the advance warning, and every later one lands a
-    // whole number of intervals after that, so the gap says how far the task has to move.
+    // whole number of cycles after that, so the gap says how far the task has to move. The gap is
+    // rounded to whole cycles rather than divided down, because a cycle spanning a daylight-saving
+    // change is an hour shorter (or longer) than the nominal interval, and an alarm queued before
+    // this fix carries that hour with it.
     val firstTrigger = reminder - advanceReminderMinutes.toLong() * MILLIS_PER_MINUTE
-    val cycles = (triggerTime - firstTrigger) / interval
+    val cycles = ((triggerTime - firstTrigger).toDouble() / interval).roundToInt()
     if (cycles <= 0) return null
 
-    val shift = cycles * interval
     return copy(
         isDone = false,
-        dueDate = dueDate?.plus(shift),
-        reminderTime = reminder + shift
+        dueDate = dueDate?.let { repeat.occurrenceAfter(it, cycles, zone) },
+        reminderTime = repeat.occurrenceAfter(reminder, cycles, zone)
     )
 }
