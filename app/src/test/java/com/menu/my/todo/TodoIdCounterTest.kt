@@ -105,15 +105,24 @@ class TodoIdCounterUpgradeTest {
         )
     }
 
-    /** The counter is authoritative once it exists, even when it is behind the list it came with. */
+    /**
+     * The counter is authoritative once it exists, even when it is behind the list it came with —
+     * so it walks all the way into an id a *live* task is holding, not merely a deleted one's.
+     */
     @Test
     fun aStoredCounterBehindTheListIsNotCorrected() {
-        val counter = TodoIdCounter(stored = 2, existing = listOf(todo(0), todo(1), todo(9))) {}
+        val counter = TodoIdCounter(stored = 5, existing = listOf(todo(0), todo(9))) {}
+
+        val handedOut = (1..6).map { counter.next() }
 
         assertEquals(
-            "it walks straight into the id the stored task with id 9 is holding",
-            listOf(2, 3, 4),
-            (1..3).map { counter.next() }
+            "it is not pulled forward past the ids the list already holds",
+            listOf(5, 6, 7, 8, 9, 10),
+            handedOut
+        )
+        assertTrue(
+            "9 goes to a new task while the existing task with id 9 is still holding it",
+            9 in handedOut
         )
     }
 

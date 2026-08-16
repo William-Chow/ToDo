@@ -323,6 +323,13 @@ internal fun mergeEditorResult(
  * a list holding only 0 and 5 goes on from 6 and 1..4 stay retired for good. Seeding lazily at the
  * first add — as the old "max id + 1" did — would stretch the reused run to cover every task deleted
  * between the upgrade and that add, which is why it happens as soon as the list is read.
+ *
+ * Once [stored] exists it is authoritative and is never reconciled against [existing], which admits a
+ * worse case than the one above: a stored counter sitting *behind* the live list walks into ids that
+ * tasks are still holding, so a new task can be handed a live task's id rather than a dead one's.
+ * Nothing in the app can produce that — todo_list and next_todo_id share one prefs file, so they
+ * cannot desync on their own — it needs corrupt or hand-edited prefs, the same input class the
+ * catch-up walk is bounded against.
  */
 internal class TodoIdCounter(
     stored: Int?,
