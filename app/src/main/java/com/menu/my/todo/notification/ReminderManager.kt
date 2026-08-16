@@ -19,10 +19,18 @@ class ReminderManager(private val context: Context) {
      * already in the past (e.g. setting a "daily 8:00" reminder in the afternoon). Instead we
      * schedule a single exact alarm for the next *future* occurrence and let ReminderReceiver queue
      * the following cycle once it fires (see [scheduleNext]).
+     *
+     * Every scheduling path goes through here — the ViewModel and BootReceiver both just hand over a
+     * task — so the "is this reminder still live?" rules below are applied consistently instead of
+     * being re-stated (and forgotten) at each call site.
      */
     fun scheduleReminder(todo: TodoItem) {
         val reminderTime = todo.reminderTime ?: return
         val repeatType = todo.repeatType ?: RepeatType.NONE
+        // A finished one-shot task has nothing left to fire. A repeating one keeps its alarm even
+        // when done, because the next occurrence firing is exactly what rolls it forward and clears
+        // the tick again (see ReminderReceiver.advanceRepeatingTodo).
+        if (todo.isDone && repeatType == RepeatType.NONE) return
         val baseTrigger = reminderTime - todo.advanceReminderMinutes.toLong() * MILLIS_PER_MINUTE
 
         // A one-shot reminder whose time has already passed simply isn't scheduled.
@@ -128,10 +136,10 @@ class ReminderManager(private val context: Context) {
     }
 }
 
-private const val MILLIS_PER_MINUTE = 60_000L
+internal const val MILLIS_PER_MINUTE = 60_000L
 
 /** Repeat interval in millis, or null for a non-repeating reminder. */
-private val RepeatType.intervalMillis: Long?
+internal val RepeatType.intervalMillis: Long?
     get() = when (this) {
         RepeatType.NONE -> null
         RepeatType.DAILY -> AlarmManager.INTERVAL_DAY

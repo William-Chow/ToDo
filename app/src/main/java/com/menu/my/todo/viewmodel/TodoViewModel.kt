@@ -1,15 +1,14 @@
 package com.menu.my.todo.viewmodel
 
 import android.app.Application
-import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import com.menu.my.todo.data.TodoStorage
 import com.menu.my.todo.model.TodoItem
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
@@ -30,8 +29,7 @@ enum class SortOrder {
 }
 
 class TodoViewModel(application: Application) : AndroidViewModel(application) {
-    private val prefs = application.getSharedPreferences("todo_prefs", Context.MODE_PRIVATE)
-    private val gson = Gson()
+    private val prefs = TodoStorage.prefs(application)
     private val reminderManager = ReminderManager(application)
     
     val todoList = mutableStateListOf<TodoItem>()
@@ -51,8 +49,21 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     // Holds the most recently deleted item (with its position) so a delete can be undone.
     private var lastDeleted: Pair<Int, TodoItem>? = null
 
+    // ReminderReceiver rolls repeating tasks onto their next occurrence by writing storage directly,
+    // in this same process. Watching the entry keeps the in-memory list from overwriting that on the
+    // next edit; loadTodos ignores content that already matches, so our own saves don't bounce back.
+    private val storageListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == TodoStorage.KEY_TODO_LIST) loadTodos()
+    }
+
     init {
         loadTodos()
+        prefs.registerOnSharedPreferenceChangeListener(storageListener)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        prefs.unregisterOnSharedPreferenceChangeListener(storageListener)
     }
 
     fun setTheme(mode: ThemeMode) {
@@ -91,29 +102,14 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             .getOrDefault(SortOrder.MANUAL)
 
     private fun loadTodos() {
-        val json = prefs.getString("todo_list", null)
-        if (json != null) {
-            try {
-                val type = object : TypeToken<List<TodoItem>>() {}.type
-                val list: List<TodoItem> = gson.fromJson(json, type)
-                // Self-heal nulls from Gson (common when fields are added later)
-                val cleanList = list.map { 
-                    it.copy(
-                        priority = it.priority ?: Priority.LOW,
-                        repeatType = it.repeatType ?: RepeatType.NONE,
-                    )
-                }
-                todoList.clear()
-                todoList.addAll(cleanList)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        val stored = TodoStorage.load(prefs) ?: return
+        if (stored == todoList.toList()) return
+        todoList.clear()
+        todoList.addAll(stored)
     }
 
     private fun saveTodos() {
-        val json = gson.toJson(todoList.toList())
-        prefs.edit { putString("todo_list", json) }
+        TodoStorage.save(prefs, todoList.toList())
     }
 
     /** Start (inclusive) and end (exclusive) timestamps of the current calendar day. */
@@ -158,6 +154,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         return when (currentSort) {
+            // MANUAL is the list's own order, which is what drag-to-reorder rewrites via moveTodo.
             SortOrder.MANUAL -> bySearch
             SortOrder.DUE_DATE -> bySearch.sortedWith(compareBy(nullsLast()) { it.dueDate })
             SortOrder.PRIORITY -> bySearch.sortedByDescending { (it.priority ?: Priority.LOW).ordinal }
@@ -173,7 +170,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         repeatType: RepeatType = RepeatType.NONE,
         advanceMinutes: Int = 0
     ) {
-        val id = if (todoList.isEmpty()) 0 else todoList.maxOf { it.id } + 1
+        val id = nextTodoId()
         val item = TodoItem(
             id = id, 
             title = title, 
@@ -187,9 +184,18 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         )
         todoList.add(item)
         saveTodos()
-        if (item.reminderTime != null) {
-            reminderManager.scheduleReminder(item)
-        }
+        reminderManager.scheduleReminder(item)
+    }
+
+    /**
+     * Ids are handed out from a persisted counter and never reused: they double as notification ids
+     * and as PendingIntent request codes, so recycling one (which the old "max id + 1" did as soon
+     * as the list was emptied) lets a deleted task's notification or alarm land on a new task.
+     */
+    private fun nextTodoId(): Int {
+        val id = maxOf(prefs.getInt(KEY_NEXT_ID, 0), (todoList.maxOfOrNull { it.id } ?: -1) + 1)
+        prefs.edit { putInt(KEY_NEXT_ID, id + 1) }
+        return id
     }
 
     fun updateTodo(updatedItem: TodoItem) {
@@ -198,10 +204,17 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             reminderManager.cancelReminder(todoList[index].id)
             todoList[index] = updatedItem
             saveTodos()
-            if (updatedItem.reminderTime != null) {
-                reminderManager.scheduleReminder(updatedItem)
-            }
+            reminderManager.scheduleReminder(updatedItem)
         }
+    }
+
+    /** Moves the task [fromId] to where [toId] sits — the manual order is the list order itself. */
+    fun moveTodo(fromId: Int, toId: Int) {
+        val from = todoList.indexOfFirst { it.id == fromId }
+        val to = todoList.indexOfFirst { it.id == toId }
+        if (from == -1 || to == -1 || from == to) return
+        todoList.add(to, todoList.removeAt(from))
+        saveTodos()
     }
 
     fun deleteTodo(todoId: Int) {
@@ -220,9 +233,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         lastDeleted = null
         todoList.add(index.coerceAtMost(todoList.size), item)
         saveTodos()
-        if (item.reminderTime != null) {
-            reminderManager.scheduleReminder(item)
-        }
+        reminderManager.scheduleReminder(item)
     }
 
     fun toggleDone(item: TodoItem) {
@@ -235,4 +246,5 @@ private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 private const val KEY_THEME_MODE = "theme_mode"
 private const val KEY_CATEGORY = "category"
 private const val KEY_SORT = "sort"
+private const val KEY_NEXT_ID = "next_todo_id"
 private const val LEGACY_DARK_THEME = "is_dark_theme"

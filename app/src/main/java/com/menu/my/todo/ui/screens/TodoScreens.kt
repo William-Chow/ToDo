@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,7 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -40,6 +43,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Palette
@@ -78,16 +82,20 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -95,6 +103,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.ads.MobileAds
 import com.menu.my.todo.BuildConfig
@@ -133,12 +142,24 @@ fun TodoListScreen(
     onToggleDone: (TodoItem) -> Unit,
     onDeleteTodo: (Int) -> Unit,
     onUndoDelete: () -> Unit,
+    onMoveTodo: (fromId: Int, toId: Int) -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var sortMenuOpen by remember { mutableStateOf(false) }
     var themeMenuOpen by remember { mutableStateOf(false) }
+
+    // Manual sort is the only order the user owns, so it is the only one that can be dragged.
+    val listState = rememberLazyListState()
+    val moveByPosition by rememberUpdatedState<(Int, Int) -> Unit> { from, to ->
+        val fromId = todoList.getOrNull(from)?.id
+        val toId = todoList.getOrNull(to)?.id
+        if (fromId != null && toId != null) onMoveTodo(fromId, toId)
+    }
+    val reorderState = remember(listState) {
+        ReorderState(listState) { from, to -> moveByPosition(from, to) }
+    }
 
     Scaffold(
         topBar = {
@@ -247,8 +268,12 @@ fun TodoListScreen(
             if (todoList.isEmpty()) {
                 EmptyState(onAddTodoClick = onAddTodoClick)
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(todoList, key = { it.id }) { item ->
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(todoList, key = { _, item -> item.id }) { index, item ->
+                        val dragging = reorderState.draggingPosition == index
+                        // The gesture key stays constant: the dragged row changes position while the
+                        // finger is down, and re-keying here would cancel the drag mid-swap.
+                        val position by rememberUpdatedState(index)
                         TodoRow(
                             item = item,
                             onToggleDone = { onToggleDone(item) },
@@ -264,12 +289,77 @@ fun TodoListScreen(
                                     if (result == SnackbarResult.ActionPerformed) onUndoDelete()
                                 }
                             },
-                            modifier = Modifier.animateItem()
+                            modifier = Modifier
+                                .zIndex(if (dragging) 1f else 0f)
+                                .graphicsLayer {
+                                    translationY = if (dragging) reorderState.dragOffset else 0f
+                                }
+                                // The dragged row is placed by hand; the rest slide out of its way.
+                                .then(if (dragging) Modifier else Modifier.animateItem()),
+                            dragHandleModifier = if (currentSort == SortOrder.MANUAL) {
+                                Modifier.pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragStart = { reorderState.onDragStart(position) },
+                                        onDragEnd = { reorderState.onDragEnd() },
+                                        onDragCancel = { reorderState.onDragEnd() }
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        reorderState.onDrag(dragAmount.y)
+                                    }
+                                }
+                            } else {
+                                null
+                            }
                         )
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Drag-to-reorder bookkeeping for the manual sort order.
+ *
+ * The stored list order *is* the manual order, so a drag only has to hand neighbouring positions to
+ * [onMove] as the dragged row passes their midpoint; persisting is the ViewModel's job. [dragOffset]
+ * is the pixel translation to apply to the row currently under the finger, and it is corrected on
+ * every swap so the row stays put while the list moves around it.
+ */
+private class ReorderState(
+    private val listState: LazyListState,
+    private val onMove: (from: Int, to: Int) -> Unit
+) {
+    var draggingPosition by mutableStateOf<Int?>(null)
+        private set
+    var dragOffset by mutableFloatStateOf(0f)
+        private set
+
+    fun onDragStart(position: Int) {
+        draggingPosition = position
+        dragOffset = 0f
+    }
+
+    fun onDrag(delta: Float) {
+        val position = draggingPosition ?: return
+        dragOffset += delta
+
+        val visible = listState.layoutInfo.visibleItemsInfo
+        val dragged = visible.firstOrNull { it.index == position } ?: return
+        val draggedCenter = dragged.offset + dragOffset + dragged.size / 2f
+        val target = visible.firstOrNull {
+            it.index != position && draggedCenter >= it.offset && draggedCenter <= it.offset + it.size
+        } ?: return
+
+        // The row is about to be laid out where the target sits, so take that jump out of the offset.
+        dragOffset += dragged.offset - target.offset
+        draggingPosition = target.index
+        onMove(position, target.index)
+    }
+
+    fun onDragEnd() {
+        draggingPosition = null
+        dragOffset = 0f
     }
 }
 
@@ -357,7 +447,9 @@ fun TodoRow(
     onToggleDone: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Non-null only in manual sort mode, where the row can be dragged to a new position.
+    dragHandleModifier: Modifier? = null
 ) {
     val locale = LocalConfiguration.current.locales[0]
     Card(
@@ -444,6 +536,20 @@ fun TodoRow(
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "删除 ${item.title}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (dragHandleModifier != null) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .then(dragHandleModifier),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.DragHandle,
+                        contentDescription = "拖动排序 ${item.title}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
@@ -709,6 +815,7 @@ fun TodoListPreview() {
             onToggleDone = {},
             onDeleteTodo = {},
             onUndoDelete = {},
+            onMoveTodo = { _, _ -> },
             onThemeModeChange = {}
         )
     }

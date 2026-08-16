@@ -91,6 +91,7 @@ fun TodoApp(viewModel: TodoViewModel, onTaskSaved: () -> Unit = {}) {
                 onToggleDone = { viewModel.toggleDone(it) },
                 onDeleteTodo = { viewModel.deleteTodo(it) },
                 onUndoDelete = { viewModel.undoDelete() },
+                onMoveTodo = { fromId, toId -> viewModel.moveTodo(fromId, toId) },
                 onThemeModeChange = { viewModel.setTheme(it) }
             )
         }
