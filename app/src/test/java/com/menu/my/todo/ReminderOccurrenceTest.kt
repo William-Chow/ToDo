@@ -90,6 +90,41 @@ class ReminderOccurrenceTest {
         assertNull(rolled.dueDate)
         assertFalse(rolled.isDone)
     }
+
+    /**
+     * The gap between the first trigger and this one is rounded to whole cycles, so the halfway mark
+     * is where the answer changes. An alarm that late is one the OS delivered late, not a different
+     * occurrence, and rounding is what keeps a cycle shortened by a daylight-saving change counting
+     * as one whole cycle rather than none.
+     */
+    @Test
+    fun anAlarmLessThanHalfACycleLateIsStillTheSameOccurrence() {
+        val reminderTime = dailyAtEight.reminderTime!!
+
+        assertNull(dailyAtEight.advanceToOccurrence(reminderTime + 11 * HOUR + 59 * MINUTE, UTC))
+    }
+
+    @Test
+    fun anAlarmMoreThanHalfACycleLateCountsAsTheNextOccurrence() {
+        val reminderTime = dailyAtEight.reminderTime!!
+
+        val rolled = dailyAtEight.advanceToOccurrence(reminderTime + 12 * HOUR + MINUTE, UTC)!!
+
+        assertEquals(DAY_0 + DAY, rolled.dueDate)
+    }
+
+    /** A weekly repeat rounds over a much wider window: half of seven days, not half of one. */
+    @Test
+    fun aWeeklyRepeatRoundsOverHalfAWeek() {
+        val weekly = dailyAtEight.copy(repeatType = RepeatType.WEEKLY)
+        val reminderTime = weekly.reminderTime!!
+
+        assertNull(weekly.advanceToOccurrence(reminderTime + 3 * DAY + 11 * HOUR, UTC))
+        assertEquals(
+            DAY_0 + 7 * DAY,
+            weekly.advanceToOccurrence(reminderTime + 3 * DAY + 13 * HOUR, UTC)!!.dueDate
+        )
+    }
 }
 
 /**
@@ -213,14 +248,136 @@ class ReminderDstTest {
     }
 }
 
-private const val DAY = 24L * 60 * 60 * 1000
+/**
+ * Covers finding the next live occurrence of a repeating reminder from a start that is behind the
+ * clock — the boot path, where every stored task is rescheduled on the main thread. The nominal
+ * interval only estimates the cycle count, so this has to land on the first occurrence at or after
+ * "now" whatever the calendar did in between, and it has to do it in bounded time even when the
+ * start it is handed is a timestamp no user could have produced.
+ */
+class ReminderCatchUpTest {
+    @Test
+    fun anOccurrenceLandingExactlyOnNowIsTheOneScheduled() {
+        val start = newYork(2026, 5, 1, 8, 0)
+        val now = newYork(2026, 5, 3, 8, 0)
+
+        assertEquals(now, RepeatType.DAILY.occurrenceAtOrAfter(start, now, NEW_YORK))
+    }
+
+    @Test
+    fun monthsOfMissedCyclesLandOnTheNextWallClockOccurrence() {
+        val first = newYork(2026, 2, 1, 8, 0)
+
+        listOf(
+            newYork(2026, 3, 8, 7, 0) to newYork(2026, 3, 8, 8, 0),
+            newYork(2026, 3, 8, 9, 0) to newYork(2026, 3, 9, 8, 0),
+            newYork(2026, 3, 9, 7, 0) to newYork(2026, 3, 9, 8, 0),
+            newYork(2026, 11, 2, 7, 0) to newYork(2026, 11, 2, 8, 0),
+            newYork(2027, 6, 1, 7, 0) to newYork(2027, 6, 1, 8, 0)
+        ).forEach { (now, expected) ->
+            assertEquals(expected, RepeatType.DAILY.occurrenceAtOrAfter(first, now, NEW_YORK))
+        }
+    }
+
+    /**
+     * Swept against a brute-force count of the same cycles: the answer has to be the *first*
+     * occurrence at or after now, never a later one, on both sides of both transitions.
+     */
+    @Test
+    fun theAnswerIsAlwaysTheFirstOccurrenceNotJustAFutureOne() {
+        listOf(RepeatType.DAILY, RepeatType.WEEKLY).forEach { repeat ->
+            val start = newYork(2026, 2, 20, 8, 0)
+            var now = newYork(2026, 2, 20, 0, 0)
+            val end = newYork(2026, 11, 10, 0, 0)
+
+            while (now < end) {
+                var cycles = 0
+                var expected = start
+                while (expected < now) {
+                    cycles++
+                    expected = repeat.occurrenceAfter(start, cycles, NEW_YORK)
+                }
+
+                assertEquals(
+                    "$repeat from $start at $now",
+                    expected,
+                    repeat.occurrenceAtOrAfter(start, now, NEW_YORK)
+                )
+                now += 7 * HOUR + 13 * MINUTE
+            }
+        }
+    }
+
+    /** Pacific/Apia crossed the date line in 2011 and skipped 2011-12-30 outright. */
+    @Test
+    fun aZoneThatDroppedAWholeCalendarDayIsStillCaughtUp() {
+        val apia = TimeZone.getTimeZone("Pacific/Apia")
+        val start = at(apia, 2011, 12, 28, 9, 0)
+
+        assertEquals(
+            at(apia, 2012, 1, 5, 9, 0),
+            RepeatType.DAILY.occurrenceAtOrAfter(start, at(apia, 2012, 1, 5, 8, 0), apia)
+        )
+    }
+
+    @Test
+    fun aNonRepeatingReminderIsNeverMoved() {
+        val trigger = newYork(2026, 3, 7, 23, 30)
+
+        assertEquals(trigger, RepeatType.NONE.occurrenceAfter(trigger, 5, NEW_YORK))
+        assertEquals(trigger, RepeatType.NONE.occurrenceAtOrAfter(trigger, trigger + 100 * DAY, NEW_YORK))
+    }
+
+    /**
+     * A start out of a corrupted store, from far enough back that the cycle count does not fit in an
+     * Int: 26_688_018_334 cycles, which wrapped to 918_214_558 when it was cast, leaving the walk
+     * billions of calendar days to cover a Calendar at a time. BootReceiver reschedules every stored
+     * task on the main thread, so this has to return rather than be worth waiting for.
+     */
+    @Test(timeout = 5_000)
+    fun aStartTooFarBackToCountDoesNotWalkThere() {
+        val now = 1_775_000_000_000L
+
+        assertEquals(now, RepeatType.DAILY.occurrenceAtOrAfter(Long.MIN_VALUE / 4, now, NEW_YORK))
+    }
+
+    /** Far enough back that `now - start` overflows, so the estimate cannot even be taken. */
+    @Test(timeout = 5_000)
+    fun aStartThatOverflowsTheElapsedTimeDoesNotWalkEither() {
+        val now = 1_775_000_000_000L
+
+        assertEquals(now, RepeatType.WEEKLY.occurrenceAtOrAfter(Long.MIN_VALUE, now, NEW_YORK))
+    }
+
+    /**
+     * The largest start the cycle-count bound still lets through — its estimate is exactly
+     * Int.MAX_VALUE — and the one case the walk bound catches on its own. The estimate is a cycle
+     * short as always, but there is no room left to add it: the walk's `cycles++` wraps to
+     * Int.MIN_VALUE, the occurrence lands 11 million years back, and it stays below now for every
+     * step after that. Clamping the count does not help here; only stopping the walk does.
+     */
+    @Test(timeout = 5_000)
+    fun aStartWhoseCycleCountOnlyJustFitsAnIntDoesNotWalkEither() {
+        val now = 1_775_000_000_000L
+        val start = now - (Int.MAX_VALUE.toLong() + 1) * DAY
+
+        assertEquals(now, RepeatType.DAILY.occurrenceAtOrAfter(start, now, NEW_YORK))
+    }
+}
+
+private const val MINUTE = 60L * 1000
+private const val HOUR = 60 * MINUTE
+private const val DAY = 24 * HOUR
 private const val DAY_0 = 1_700_000_000_000L
 private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 private val NEW_YORK: TimeZone = TimeZone.getTimeZone("America/New_York")
 
 /** [month] is 1-based, unlike Calendar's. */
-private fun newYork(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0): Long =
-    Calendar.getInstance(NEW_YORK).apply {
+private fun at(zone: TimeZone, year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0): Long =
+    Calendar.getInstance(zone).apply {
         clear()
         set(year, month - 1, day, hour, minute, 0)
     }.timeInMillis
+
+private fun newYork(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0): Long =
+    at(NEW_YORK, year, month, day, hour, minute)

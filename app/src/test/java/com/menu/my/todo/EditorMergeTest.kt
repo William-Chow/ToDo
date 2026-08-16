@@ -90,6 +90,57 @@ class EditorMergeTest {
         assertNull(saved)
     }
 
+    @Test
+    fun clearingTheDatesStillClearsThemEvenThoughTheTaskRolled() {
+        val saved = merge(dueDate = null, reminderTime = null, repeatType = RepeatType.NONE)!!
+
+        assertNull(saved.dueDate)
+        assertNull(saved.reminderTime)
+        assertEquals(RepeatType.NONE, saved.repeatType)
+    }
+
+    /** Nothing wrote to the task while the editor was open: the save is a plain replacement. */
+    @Test
+    fun aSaveWithNoOutsideWriteInBetweenIsJustTheEdit() {
+        val saved = mergeEditorResult(
+            current = listOf(openedWith),
+            editing = openedWith,
+            title = "Take pills before bed",
+            description = "just the blue one",
+            priority = Priority.HIGH,
+            dueDate = DAY_1 + 30 * DAY,
+            reminderTime = DAY_1 + 30 * DAY + 9 * HOUR,
+            repeatType = RepeatType.WEEKLY,
+            advanceMinutes = 30
+        )
+
+        assertEquals(
+            openedWith.copy(
+                title = "Take pills before bed",
+                description = "just the blue one",
+                priority = Priority.HIGH,
+                dueDate = DAY_1 + 30 * DAY,
+                reminderTime = DAY_1 + 30 * DAY + 9 * HOUR,
+                repeatType = RepeatType.WEEKLY,
+                advanceReminderMinutes = 30
+            ),
+            saved
+        )
+    }
+
+    /**
+     * The known cost of telling "touched" from "untouched" by comparing against the snapshot: a user
+     * who picks the date the editor opened with *back* looks like a user who never touched it, so the
+     * occurrence the task rolled to wins over a deliberate re-pick. Losing a re-pick of a date that
+     * has already gone past is the cheaper of the two mistakes.
+     */
+    @Test
+    fun aDateRePickedToTheValueTheEditorOpenedWithReadsAsUntouched() {
+        val saved = merge(dueDate = openedWith.dueDate)!!
+
+        assertEquals(rolledForward.dueDate, saved.dueDate)
+    }
+
     /** A save from the editor, whose fields are seeded from [openedWith] unless overridden here. */
     private fun merge(
         title: String = openedWith.title,

@@ -312,10 +312,16 @@ internal fun mergeEditorResult(
  * The counter only moves forward and is persisted on every hand-out, so ids are not recycled when
  * the list shrinks. On an install from before the counter existed [stored] is absent and it is
  * seeded once, eagerly, from the ids [existing] holds at that moment — that list is the whole
- * record. Two things follow, and neither is fixable from here: ids of tasks deleted *before* the
- * upgrade are unknown, so one of them can be handed out once (including id 0 when the upgraded list
- * is empty), and ids left in gaps by those deletions are reused once too. Seeding lazily at the
- * first add — as the old "max id + 1" did — would widen that hole to cover every task deleted
+ * record, and the ids of tasks deleted *before* the upgrade left none, so what those ids were is not
+ * knowable from here. What survives of them is exactly one thing: the old policy was "max id + 1",
+ * so the ids it had handed out were the contiguous run 0..n, and seeding at max + 1 hands the tail
+ * of that run — the whole contiguous stretch above the highest surviving id — out a second time, one
+ * id at a time, before the counter reaches ground no task has ever stood on. That is the residual,
+ * and it is neither more nor less: an upgraded list holding 0, 1 and 2 whose 3, 4 and 5 were deleted
+ * first hands out 3, 4 and 5 again, and an emptied one starts from 0 again. Ids sitting in gaps
+ * *below* the highest surviving id are the other side of it — those are never handed out again, so
+ * a list holding only 0 and 5 goes on from 6 and 1..4 stay retired for good. Seeding lazily at the
+ * first add — as the old "max id + 1" did — would stretch the reused run to cover every task deleted
  * between the upgrade and that add, which is why it happens as soon as the list is read.
  */
 internal class TodoIdCounter(

@@ -96,8 +96,12 @@ class ReminderReceiver : BroadcastReceiver() {
  * trigger, and the task counts as not done again. Returns null when there is nothing to move — the
  * task does not repeat, has no reminder, or the alarm is still the first occurrence's.
  *
- * The steps are calendar days and weeks in [zone] (the device's own by default), so a task keeps
- * its time of day and lands on every calendar day even across a daylight-saving change.
+ * The steps are calendar days and weeks in [zone] (the device's own by default), so a task lands on
+ * every calendar day even across a daylight-saving change, and keeps its time of day — with one
+ * exception. A time of day inside the hour a spring-forward skips does not exist on that day, so the
+ * step resolves backwards to the last instant the day does hold, and because each roll starts from
+ * the value the previous one wrote, the task stays there: an America/New_York 02:30 daily is at
+ * 01:30 from 2026-03-08 onwards, not just on it. See [occurrenceAfter].
  */
 internal fun TodoItem.advanceToOccurrence(
     triggerTime: Long,

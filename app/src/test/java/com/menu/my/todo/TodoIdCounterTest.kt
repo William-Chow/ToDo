@@ -70,6 +70,63 @@ class TodoIdCounterTest {
         assertEquals(10, counter.next())
         assertEquals(11, persisted)
     }
-
-    private fun todo(id: Int) = TodoItem(id = id, title = "task $id", description = "")
 }
+
+/**
+ * Pins what the upgrade from "max id + 1" leaves behind, in both directions, because
+ * [TodoIdCounter]'s KDoc states it exactly and a statement that is wrong is worse than none. Seeding
+ * at max + 1 hands out the contiguous run above the highest surviving id a second time — the whole
+ * run, not one id of it — and never hands out the gaps below that id at all.
+ */
+class TodoIdCounterUpgradeTest {
+    @Test
+    fun theWholeRunAboveTheHighestSurvivingIdComesBack() {
+        // The old policy had handed out 0..5; 3, 4 and 5 were deleted before the upgrade.
+        val counter = TodoIdCounter(stored = null, existing = listOf(todo(0), todo(1), todo(2))) {}
+
+        assertEquals(listOf(3, 4, 5), (1..3).map { counter.next() })
+    }
+
+    @Test
+    fun anEmptiedListPutsEveryIdItEverHeldBackInPlay() {
+        val counter = TodoIdCounter(stored = null, existing = emptyList()) {}
+
+        assertEquals((0..9).toList(), (1..10).map { counter.next() })
+    }
+
+    @Test
+    fun idsLeftInGapsBelowTheHighestSurvivingIdAreNotHandedOutAgain() {
+        val counter = TodoIdCounter(stored = null, existing = listOf(todo(0), todo(5))) {}
+
+        assertEquals(
+            "1..4 were deleted below the maximum, so they stay retired",
+            listOf(6, 7, 8, 9, 10, 11),
+            (1..6).map { counter.next() }
+        )
+    }
+
+    /** The counter is authoritative once it exists, even when it is behind the list it came with. */
+    @Test
+    fun aStoredCounterBehindTheListIsNotCorrected() {
+        val counter = TodoIdCounter(stored = 2, existing = listOf(todo(0), todo(1), todo(9))) {}
+
+        assertEquals(
+            "it walks straight into the id the stored task with id 9 is holding",
+            listOf(2, 3, 4),
+            (1..3).map { counter.next() }
+        )
+    }
+
+    /** What is persisted is the id to hand out *next*, which is what a later [stored] is read as. */
+    @Test
+    fun theCounterResumesWhereThePersistedValueLeftOff() {
+        var persisted: Int? = null
+        val counter = TodoIdCounter(stored = 5, existing = emptyList()) { persisted = it }
+
+        assertEquals(5, counter.next())
+        assertEquals(6, persisted)
+        assertEquals(6, TodoIdCounter(stored = persisted, existing = emptyList()) {}.next())
+    }
+}
+
+private fun todo(id: Int) = TodoItem(id = id, title = "task $id", description = "")

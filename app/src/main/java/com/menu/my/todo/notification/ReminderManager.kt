@@ -156,6 +156,19 @@ internal val RepeatType.intervalMillis: Long?
  * and weeks, not fixed blocks of milliseconds. Adding milliseconds instead shifts the time of day
  * by an hour across a daylight-saving change, and — because a due date is stored as the midnight
  * that starts the day — that hour is enough to land a daily task on the wrong calendar day.
+ *
+ * The one time of day this cannot keep is one a spring-forward skips, because on that day it does
+ * not exist. Calendar resolves it *backwards*, to the last instant the day does hold: an
+ * America/New_York 02:30 daily steps to 01:30 on 2026-03-08, and an America/Santiago due date stored
+ * as local midnight steps to 01:00 on 2026-09-06. The calendar day is still the right one, and
+ * counting [cycles] from a [start] that was never shifted recovers the time of day the day after
+ * (02:30 on 2026-03-09). The live chain does not get that far: [ReminderManager.scheduleNext] and
+ * [advanceToOccurrence] each step one cycle from the *previous* occurrence, so the shifted time is
+ * the next step's input and the reminder stays an hour early from then on. Restoring the time of day
+ * afterwards would only swap that for an hour late — 02:30 is not there to restore, and Calendar
+ * resolves it forwards to 03:30 when it is set rather than added — so putting this right means
+ * keeping the originally chosen time of day in a stored field it cannot drift out of, which is a
+ * change to the task, not to the arithmetic. ReminderGapTest pins what happens today.
  */
 internal fun RepeatType.occurrenceAfter(
     start: Long,
@@ -173,12 +186,38 @@ internal fun RepeatType.occurrenceAfter(
 }
 
 /**
+ * How many calendar cycles [occurrenceAtOrAfter] may walk past its nominal estimate before it treats
+ * the start it was given as unusable. The estimate is short by one cycle on purpose and truncating
+ * division can take another; past that, the only thing separating n calendar cycles from n nominal
+ * intervals is how far the zone's UTC offset moved in between, and no zone in tzdata spans more than
+ * about 26 hours of that (Pacific/Apia is the widest, -11:30 to +14:00) — under two daily cycles, and
+ * a fraction of a weekly one. Four steps would always be enough; eight leaves room and is still
+ * nothing on the main thread.
+ *
+ * It is not only headroom, though. An estimate can sit right on Int.MAX_VALUE and still be a cycle
+ * short, and it is the walk's own `cycles++` that gives out there: the count wraps to Int.MIN_VALUE,
+ * the occurrence lands in the far past, and `occurrence < now` then holds for every step after it —
+ * a loop with no way back, which clamping the estimate alone does not reach. The bound is what turns
+ * that into a return.
+ */
+private const val MAX_CATCH_UP_STEPS = 8
+
+/**
  * The first occurrence at or after [now], counting whole cycles from [start] (which is returned
  * unchanged for a non-repeating reminder, or one that is still in the future).
  *
  * The nominal interval only estimates how far ahead that is, and the estimate is deliberately one
  * cycle short: cycles that cross a daylight-saving change are shorter or longer than nominal, so
- * the last step or two is walked one calendar cycle at a time.
+ * the last step or two is walked one calendar cycle at a time — at most [MAX_CATCH_UP_STEPS] of
+ * them.
+ *
+ * Both the estimate and the walk are bounded because [start] is read back from storage. A corrupted
+ * or hand-edited file can hold a timestamp so far in the past that the cycle count overruns Int — or
+ * that `now - start` overflows outright — and an estimate that wrapped instead of saturating leaves
+ * the walk billions of calendar days to cover one Calendar at a time. This runs on BootReceiver's
+ * main thread once per stored task, so that is a boot-time ANR rather than a slow reminder. An input
+ * the bounds reject falls back to [now]: not the occurrence the cycles say, but still a future alarm,
+ * and the cycle queued after it is measured from a timestamp that makes sense again.
  */
 internal fun RepeatType.occurrenceAtOrAfter(
     start: Long,
@@ -187,9 +226,15 @@ internal fun RepeatType.occurrenceAtOrAfter(
 ): Long {
     val interval = intervalMillis ?: return start
     if (start >= now) return start
-    var cycles = ((now - start) / interval - 1).coerceAtLeast(0L).toInt()
+    // start < now, so a negative elapsed is the subtraction wrapping and nothing else.
+    val elapsed = now - start
+    val estimate = if (elapsed < 0) Long.MAX_VALUE else elapsed / interval - 1
+    if (estimate > Int.MAX_VALUE) return now
+    var cycles = estimate.coerceAtLeast(0L).toInt()
     var occurrence = occurrenceAfter(start, cycles, zone)
+    var steps = 0
     while (occurrence < now) {
+        if (++steps > MAX_CATCH_UP_STEPS) return now
         cycles++
         occurrence = occurrenceAfter(start, cycles, zone)
     }
