@@ -138,18 +138,9 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getFilteredList(): List<TodoItem> {
-        val (todayStart, todayEnd) = todayBounds()
+        val (_, todayEnd) = todayBounds()
 
-        val byCategory = when (currentCategory) {
-            TodoCategory.TODAY -> todoList.filter {
-                !it.isDone && it.dueDate != null && it.dueDate in todayStart until todayEnd
-            }
-            TodoCategory.UPCOMING -> todoList.filter {
-                !it.isDone && it.dueDate != null && it.dueDate >= todayEnd
-            }
-            TodoCategory.COMPLETED -> todoList.filter { it.isDone }
-            TodoCategory.ALL -> todoList.toList()
-        }
+        val byCategory = categoryFilter(todoList, currentCategory, todayEnd)
 
         val bySearch = if (searchQuery.isBlank()) {
             byCategory
@@ -290,6 +281,30 @@ internal fun moveIndices(current: List<TodoItem>, fromId: Int, toId: Int): Pair<
     val from = current.indexOfFirst { it.id == fromId }
     val to = current.indexOfFirst { it.id == toId }
     return if (from == -1 || to == -1 || from == to) null else from to to
+}
+
+/**
+ * The tasks [category] holds, out of [todos], for a day that ends at [todayEnd] (exclusive).
+ *
+ * TODAY reaches back as well as around the current day. A task whose due date has gone past is not
+ * upcoming and is not completed, so bounding TODAY at the start of the day as well left it matching
+ * no category at all: it was reachable only under ALL, which is both the longest list to lose it in
+ * and the one place its overdue styling was least likely to be looked at. Being late is something
+ * the row says; which list a task is in only ever answers "is it still owed".
+ *
+ * A task with no due date at all belongs to no day and still shows up only under ALL. That is the
+ * same hole one filter over, and closing it means deciding where an undated task ought to live
+ * rather than moving a boundary, so it is left as it stands.
+ */
+internal fun categoryFilter(
+    todos: List<TodoItem>,
+    category: TodoCategory,
+    todayEnd: Long
+): List<TodoItem> = when (category) {
+    TodoCategory.TODAY -> todos.filter { !it.isDone && it.dueDate != null && it.dueDate < todayEnd }
+    TodoCategory.UPCOMING -> todos.filter { !it.isDone && it.dueDate != null && it.dueDate >= todayEnd }
+    TodoCategory.COMPLETED -> todos.filter { it.isDone }
+    TodoCategory.ALL -> todos.toList()
 }
 
 /**
