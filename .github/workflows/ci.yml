@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # gradle/gradle-daemon-jvm.properties pins the daemon to JDK 21. Handing it one here is what
+      # keeps Gradle from provisioning its own on every run.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # compileSdk is 36.1, which the runner image does not ship. AGP will fetch it, but only once
+      # the SDK licences have been accepted.
+      - uses: android-actions/setup-android@v3
+
+      # The reminder arithmetic, the id counter and the reorder maths are all covered by tests that
+      # nothing was running automatically. Lint comes along because an Android build can be green
+      # and still be wrong about resources.
+      - name: Unit tests and lint
+        run: ./gradlew testDebugUnitTest lintDebug --console=plain
+
+      # Uploaded even when the run fails — a red build is exactly when the reports are worth reading.
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-and-lint-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
