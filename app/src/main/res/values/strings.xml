@@ -1,3 +1,79 @@
 <resources>
     <string name="app_name">TO-Do</string>
+
+    <!-- List screen -->
+    <string name="app_bar_title">任务清单</string>
+    <string name="action_sort">排序</string>
+    <string name="sort_manual">手动排序</string>
+    <string name="sort_due_date">按截止日期</string>
+    <string name="sort_priority">按优先级</string>
+    <string name="action_theme">主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="theme_dynamic">动态取色</string>
+    <string name="action_add_task">添加任务</string>
+    <string name="search_hint">搜索任务</string>
+    <string name="search_clear">清除搜索</string>
+    <string name="snackbar_task_deleted">已删除任务</string>
+    <string name="snackbar_undo">撤销</string>
+    <string name="today_progress_title">今日进度</string>
+    <string name="today_progress_count">%1$d / %2$d 完成</string>
+    <string name="empty_state_title">这里还没有任务</string>
+    <!-- Debug-only affordance; never shown in a release build. -->
+    <string name="action_ad_inspector">广告检查器</string>
+
+    <!-- Categories -->
+    <string name="category_today">今天</string>
+    <string name="category_upcoming">即将</string>
+    <string name="category_completed">已完成</string>
+    <string name="category_all">全部</string>
+
+    <!-- A task row -->
+    <string name="row_delete_desc">删除 %1$s</string>
+    <string name="row_drag_desc">拖动排序 %1$s</string>
+    <string name="priority_high">高</string>
+    <string name="priority_mid">中</string>
+    <string name="priority_low">低</string>
+    <string name="repeat_none">不重复</string>
+    <string name="repeat_daily">每天</string>
+    <string name="repeat_weekly">每周</string>
+    <string name="due_today">今天</string>
+    <string name="due_tomorrow">明天</string>
+    <string name="due_yesterday">昨天</string>
+
+    <!-- Date and time patterns, as SimpleDateFormat takes them. A locale that writes its dates
+         differently overrides these rather than the code that formats with them. -->
+    <string name="date_format_short">M月d日</string>
+    <string name="date_format_full">yyyy年M月d日</string>
+    <string name="time_format">HH:mm</string>
+
+    <!-- Editor screen -->
+    <string name="editor_title_add">新建任务</string>
+    <string name="editor_title_edit">编辑任务</string>
+    <string name="action_back">返回</string>
+    <string name="action_save">保存</string>
+    <string name="field_title">标题</string>
+    <string name="field_description">描述</string>
+    <string name="field_priority">优先级</string>
+    <string name="field_repeat">重复</string>
+    <string name="field_advance_minutes">提前提醒（分钟）</string>
+    <string name="due_date_set">设置截止日期</string>
+    <string name="due_date_value">截止：%1$s</string>
+    <string name="due_date_clear">清除截止日期</string>
+    <string name="reminder_set">设置提醒时间</string>
+    <string name="reminder_value">提醒：%1$s</string>
+    <string name="reminder_clear">清除提醒</string>
+
+    <!-- Shown when a reminder is set but the OS will drop or delay it -->
+    <string name="reminder_permission_title">提醒可能无法准时送达</string>
+    <string name="reminder_permission_notifications">• 通知权限未开启，提醒将不会显示\n</string>
+    <string name="reminder_permission_exact_alarm">• 精确闹钟权限未开启，提醒可能被延迟\n</string>
+    <string name="reminder_permission_prompt">\n是否前往系统设置开启？</string>
+    <string name="reminder_permission_open">去设置</string>
+    <string name="reminder_permission_save_anyway">仍然保存</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">任务提醒</string>
+    <string name="notification_default_title">任务提醒</string>
 </resources>

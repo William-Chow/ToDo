@@ -18,7 +18,8 @@ import kotlin.math.roundToInt
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val title = intent.getStringExtra(ReminderManager.EXTRA_TITLE) ?: "Todo Reminder"
+        val title = intent.getStringExtra(ReminderManager.EXTRA_TITLE)
+            ?: context.getString(R.string.notification_default_title)
         val description = intent.getStringExtra(ReminderManager.EXTRA_DESCRIPTION) ?: ""
         val todoId = intent.getIntExtra(ReminderManager.EXTRA_TODO_ID, 0)
         val repeatType = runCatching {
@@ -63,7 +64,7 @@ class ReminderReceiver : BroadcastReceiver() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "Todo Reminders",
+                context.getString(R.string.notification_channel_name),
                 NotificationManager.IMPORTANCE_HIGH
             )
             notificationManager.createNotificationChannel(channel)

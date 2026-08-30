@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -105,6 +106,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
@@ -114,6 +116,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.ads.MobileAds
 import com.menu.my.todo.BuildConfig
+import com.menu.my.todo.R
 import com.menu.my.todo.ads.AdBanner
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
@@ -155,6 +158,10 @@ fun TodoListScreen(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Read here and not at the call site: the snackbar is raised from a coroutine, which is not a
+    // composition and cannot reach resources.
+    val deletedMessage = stringResource(R.string.snackbar_task_deleted)
+    val undoLabel = stringResource(R.string.snackbar_undo)
     var sortMenuOpen by remember { mutableStateOf(false) }
     var themeMenuOpen by remember { mutableStateOf(false) }
 
@@ -165,7 +172,7 @@ fun TodoListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Todo List", color = MaterialTheme.colorScheme.onPrimary) },
+                title = { Text(stringResource(R.string.app_bar_title), color = MaterialTheme.colorScheme.onPrimary) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary),
                 actions = {
                     if (BuildConfig.DEBUG) {
@@ -173,29 +180,29 @@ fun TodoListScreen(
                         // Only works on devices registered as test devices.
                         val context = LocalContext.current
                         IconButton(onClick = { MobileAds.openAdInspector(context) { } }) {
-                            Icon(Icons.Default.BugReport, contentDescription = "Ad Inspector", tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.Default.BugReport, contentDescription = stringResource(R.string.action_ad_inspector), tint = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                     Box {
                         IconButton(onClick = { sortMenuOpen = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "排序", tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = stringResource(R.string.action_sort), tint = MaterialTheme.colorScheme.onPrimary)
                         }
                         DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
-                            CheckableMenuItem("手动排序", SortOrder.MANUAL, currentSort) { onSortChange(it); sortMenuOpen = false }
-                            CheckableMenuItem("按截止日期", SortOrder.DUE_DATE, currentSort) { onSortChange(it); sortMenuOpen = false }
-                            CheckableMenuItem("按优先级", SortOrder.PRIORITY, currentSort) { onSortChange(it); sortMenuOpen = false }
+                            CheckableMenuItem(stringResource(R.string.sort_manual), SortOrder.MANUAL, currentSort) { onSortChange(it); sortMenuOpen = false }
+                            CheckableMenuItem(stringResource(R.string.sort_due_date), SortOrder.DUE_DATE, currentSort) { onSortChange(it); sortMenuOpen = false }
+                            CheckableMenuItem(stringResource(R.string.sort_priority), SortOrder.PRIORITY, currentSort) { onSortChange(it); sortMenuOpen = false }
                         }
                     }
                     Box {
                         IconButton(onClick = { themeMenuOpen = true }) {
-                            Icon(Icons.Default.Palette, contentDescription = "主题", tint = MaterialTheme.colorScheme.onPrimary)
+                            Icon(Icons.Default.Palette, contentDescription = stringResource(R.string.action_theme), tint = MaterialTheme.colorScheme.onPrimary)
                         }
                         DropdownMenu(expanded = themeMenuOpen, onDismissRequest = { themeMenuOpen = false }) {
-                            CheckableMenuItem("跟随系统", ThemeMode.SYSTEM, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
-                            CheckableMenuItem("浅色", ThemeMode.LIGHT, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
-                            CheckableMenuItem("深色", ThemeMode.DARK, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            CheckableMenuItem(stringResource(R.string.theme_system), ThemeMode.SYSTEM, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            CheckableMenuItem(stringResource(R.string.theme_light), ThemeMode.LIGHT, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            CheckableMenuItem(stringResource(R.string.theme_dark), ThemeMode.DARK, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                CheckableMenuItem("动态取色", ThemeMode.DYNAMIC, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                                CheckableMenuItem(stringResource(R.string.theme_dynamic), ThemeMode.DYNAMIC, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
                             }
                         }
                     }
@@ -217,7 +224,7 @@ fun TodoListScreen(
                                 unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                             ),
-                            label = { Text(categoryLabel(category)) },
+                            label = { Text(stringResource(categoryLabelRes(category))) },
                             icon = {
                                 val icon = when (category) {
                                     TodoCategory.TODAY -> Icons.Default.Today
@@ -225,7 +232,7 @@ fun TodoListScreen(
                                     TodoCategory.COMPLETED -> Icons.Default.CheckCircle
                                     TodoCategory.ALL -> Icons.AutoMirrored.Filled.List
                                 }
-                                Icon(imageVector = icon, contentDescription = category.name)
+                                Icon(imageVector = icon, contentDescription = stringResource(categoryLabelRes(category)))
                             }
                         )
                     }
@@ -235,7 +242,7 @@ fun TodoListScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddTodoClick, containerColor = MaterialTheme.colorScheme.primary) {
-                Icon(Icons.Default.Add, contentDescription = "Add Todo", tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_add_task), tint = MaterialTheme.colorScheme.onPrimary)
             }
         }
     ) { innerPadding ->
@@ -247,13 +254,13 @@ fun TodoListScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                label = { Text("搜索任务") },
+                label = { Text(stringResource(R.string.search_hint)) },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { onSearchChange("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "清除搜索")
+                            Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.search_clear))
                         }
                     }
                 },
@@ -284,8 +291,8 @@ fun TodoListScreen(
                                 onDeleteTodo(item.id)
                                 scope.launch {
                                     val result = snackbarHostState.showSnackbar(
-                                        message = "已删除任务",
-                                        actionLabel = "撤销",
+                                        message = deletedMessage,
+                                        actionLabel = undoLabel,
                                         duration = SnackbarDuration.Short
                                     )
                                     if (result == SnackbarResult.ActionPerformed) onUndoDelete()
@@ -591,12 +598,12 @@ private fun TodayProgress(done: Int, total: Int) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    "今日进度",
+                    stringResource(R.string.today_progress_title),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
-                    "$done / $total 完成",
+                    stringResource(R.string.today_progress_count, done, total),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -628,12 +635,12 @@ private fun EmptyState(onAddTodoClick: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                "这里还没有任务",
+                stringResource(R.string.empty_state_title),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
-            TextButton(onClick = onAddTodoClick) { Text("添加任务") }
+            TextButton(onClick = onAddTodoClick) { Text(stringResource(R.string.action_add_task)) }
         }
     }
 }
@@ -715,16 +722,16 @@ fun TodoRow(
                             content = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    repeatLabel(item.repeatType)?.let { label ->
+                    if ((item.repeatType ?: RepeatType.NONE) != RepeatType.NONE) {
                         Pill(
-                            text = label,
+                            text = stringResource(repeatLabelRes(item.repeatType)),
                             icon = Icons.Default.Repeat,
                             container = MaterialTheme.colorScheme.primaryContainer,
                             content = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                     Pill(
-                        text = priorityLabel(item.priority),
+                        text = stringResource(priorityLabelRes(item.priority)),
                         icon = null,
                         container = priorityColor(item.priority).copy(alpha = 0.16f),
                         content = priorityColor(item.priority)
@@ -732,7 +739,7 @@ fun TodoRow(
                 }
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "删除 ${item.title}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.row_delete_desc, item.title), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (dragHandleModifier != null) {
                 Box(
@@ -743,7 +750,7 @@ fun TodoRow(
                 ) {
                     Icon(
                         Icons.Default.DragHandle,
-                        contentDescription = "拖动排序 ${item.title}",
+                        contentDescription = stringResource(R.string.row_drag_desc, item.title),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -790,19 +797,26 @@ fun TodoInputScreen(
     fun save() = onSaveTodo(title, description, priority, dueDate, reminderTime, repeatType, advanceMinutes)
 
     val locale = LocalConfiguration.current.locales[0]
-    val dateSdf = remember(locale) { SimpleDateFormat("MMM dd, yyyy", locale) }
-    val timeSdf = remember(locale) { SimpleDateFormat("HH:mm", locale) }
+    val datePattern = stringResource(R.string.date_format_full)
+    val timePattern = stringResource(R.string.time_format)
+    val dateSdf = remember(locale, datePattern) { SimpleDateFormat(datePattern, locale) }
+    val timeSdf = remember(locale, timePattern) { SimpleDateFormat(timePattern, locale) }
 
     BackHandler(onBack = onBack)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (todoItem == null) "Add Todo" else "Edit Todo", color = MaterialTheme.colorScheme.onPrimary) },
+                title = {
+                    Text(
+                        stringResource(if (todoItem == null) R.string.editor_title_add else R.string.editor_title_edit),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onPrimary)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             )
@@ -820,25 +834,25 @@ fun TodoInputScreen(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Title") },
+                label = { Text(stringResource(R.string.field_title)) },
                 modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Description") },
+                label = { Text(stringResource(R.string.field_description)) },
                 modifier = Modifier.fillMaxWidth()
             )
 
             // Priority Selection
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text("Priority", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.field_priority), style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Priority.entries.forEach { p ->
                         FilterChip(
                             selected = priority == p,
                             onClick = { priority = p },
-                            label = { Text(p.name) }
+                            label = { Text(stringResource(priorityLabelRes(p))) }
                         )
                     }
                 }
@@ -866,10 +880,13 @@ fun TodoInputScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
-                Text(if (dueDate == null) "Set Due Date" else "Due: ${dateSdf.format(Date(dueDate!!))}")
+                Text(
+                    if (dueDate == null) stringResource(R.string.due_date_set)
+                    else stringResource(R.string.due_date_value, dateSdf.format(Date(dueDate!!)))
+                )
             }
             if (dueDate != null) {
-                TextButton(onClick = { dueDate = null }) { Text("清除截止日期") }
+                TextButton(onClick = { dueDate = null }) { Text(stringResource(R.string.due_date_clear)) }
             }
 
             // Reminder Selection
@@ -889,26 +906,29 @@ fun TodoInputScreen(
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
-                Text(if (reminderTime == null) "Set Reminder Time" else "Remind at: ${timeSdf.format(Date(reminderTime!!))}")
+                Text(
+                    if (reminderTime == null) stringResource(R.string.reminder_set)
+                    else stringResource(R.string.reminder_value, timeSdf.format(Date(reminderTime!!)))
+                )
             }
             if (reminderTime != null) {
                 TextButton(onClick = {
                     reminderTime = null
                     repeatType = RepeatType.NONE
                     advanceMinutes = 0
-                }) { Text("清除提醒") }
+                }) { Text(stringResource(R.string.reminder_clear)) }
             }
 
             // Repeat Type
             if (reminderTime != null) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text("Repeat", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.field_repeat), style = MaterialTheme.typography.labelLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         RepeatType.entries.forEach { r ->
                             FilterChip(
                                 selected = repeatType == r,
                                 onClick = { repeatType = r },
-                                label = { Text(r.name) }
+                                label = { Text(stringResource(repeatLabelRes(r))) }
                             )
                         }
                     }
@@ -917,7 +937,7 @@ fun TodoInputScreen(
                 OutlinedTextField(
                     value = if (advanceMinutes == 0) "" else advanceMinutes.toString(),
                     onValueChange = { advanceMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, MAX_ADVANCE_MINUTES) },
-                    label = { Text("Advance reminder (minutes)") },
+                    label = { Text(stringResource(R.string.field_advance_minutes)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -937,33 +957,37 @@ fun TodoInputScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Save")
+                Text(stringResource(R.string.action_save))
             }
         }
     }
 
     if (showPermissionDialog) {
         val notificationsEnabled = areNotificationsEnabled(context)
+        val exactAlarmsAllowed = canScheduleExactAlarms(context)
+        val notificationsWarning = stringResource(R.string.reminder_permission_notifications)
+        val exactAlarmWarning = stringResource(R.string.reminder_permission_exact_alarm)
+        val settingsPrompt = stringResource(R.string.reminder_permission_prompt)
         val message = buildString {
-            if (!notificationsEnabled) append("• 通知权限未开启，提醒将不会显示\n")
-            if (!canScheduleExactAlarms(context)) append("• 精确闹钟权限未开启，提醒可能被延迟\n")
-            append("\n是否前往系统设置开启？")
+            if (!notificationsEnabled) append(notificationsWarning)
+            if (!exactAlarmsAllowed) append(exactAlarmWarning)
+            append(settingsPrompt)
         }
         AlertDialog(
             onDismissRequest = { showPermissionDialog = false },
-            title = { Text("提醒可能无法准时送达") },
+            title = { Text(stringResource(R.string.reminder_permission_title)) },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = {
                     showPermissionDialog = false
                     openReminderSettings(context, notificationsEnabled)
-                }) { Text("去设置") }
+                }) { Text(stringResource(R.string.reminder_permission_open)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     showPermissionDialog = false
                     save()
-                }) { Text("仍然保存") }
+                }) { Text(stringResource(R.string.reminder_permission_save_anyway)) }
             }
         )
     }
@@ -1022,11 +1046,12 @@ fun TodoListPreview() {
 
 private const val MAX_ADVANCE_MINUTES = 1440
 
-private fun categoryLabel(category: TodoCategory): String = when (category) {
-    TodoCategory.TODAY -> "今天"
-    TodoCategory.UPCOMING -> "即将"
-    TodoCategory.COMPLETED -> "已完成"
-    TodoCategory.ALL -> "全部"
+@StringRes
+private fun categoryLabelRes(category: TodoCategory): Int = when (category) {
+    TodoCategory.TODAY -> R.string.category_today
+    TodoCategory.UPCOMING -> R.string.category_upcoming
+    TodoCategory.COMPLETED -> R.string.category_completed
+    TodoCategory.ALL -> R.string.category_all
 }
 
 private fun priorityColor(priority: Priority?): Color = when (priority ?: Priority.LOW) {
@@ -1035,16 +1060,24 @@ private fun priorityColor(priority: Priority?): Color = when (priority ?: Priori
     Priority.LOW -> PriorityLow
 }
 
-private fun priorityLabel(priority: Priority?): String = when (priority ?: Priority.LOW) {
-    Priority.HIGH -> "高"
-    Priority.MID -> "中"
-    Priority.LOW -> "低"
+@StringRes
+private fun priorityLabelRes(priority: Priority?): Int = when (priority ?: Priority.LOW) {
+    Priority.HIGH -> R.string.priority_high
+    Priority.MID -> R.string.priority_mid
+    Priority.LOW -> R.string.priority_low
 }
 
-private fun repeatLabel(repeatType: RepeatType?): String? = when (repeatType ?: RepeatType.NONE) {
-    RepeatType.NONE -> null
-    RepeatType.DAILY -> "每天"
-    RepeatType.WEEKLY -> "每周"
+/**
+ * Every repeat setting has a name, NONE included — the editor's chips have to offer "no repeat" as
+ * something to pick, and naming it there is what the raw enum name used to be doing. Whether a row
+ * *shows* the name stays the row's own call: a task that does not repeat says nothing about it
+ * rather than saying so.
+ */
+@StringRes
+private fun repeatLabelRes(repeatType: RepeatType?): Int = when (repeatType ?: RepeatType.NONE) {
+    RepeatType.NONE -> R.string.repeat_none
+    RepeatType.DAILY -> R.string.repeat_daily
+    RepeatType.WEEKLY -> R.string.repeat_weekly
 }
 
 /** Whole-day difference between [dueDate] and today (negative = past). */
@@ -1061,11 +1094,12 @@ private fun dueDayDiff(dueDate: Long): Int {
 
 private fun isOverdue(dueDate: Long): Boolean = dueDayDiff(dueDate) < 0
 
+@Composable
 private fun dueLabel(dueDate: Long, locale: Locale): String = when (dueDayDiff(dueDate)) {
-    0 -> "今天"
-    1 -> "明天"
-    -1 -> "昨天"
-    else -> SimpleDateFormat("M月d日", locale).format(Date(dueDate))
+    0 -> stringResource(R.string.due_today)
+    1 -> stringResource(R.string.due_tomorrow)
+    -1 -> stringResource(R.string.due_yesterday)
+    else -> SimpleDateFormat(stringResource(R.string.date_format_short), locale).format(Date(dueDate))
 }
 
 // ---- Permission helpers ---------------------------------------------------
