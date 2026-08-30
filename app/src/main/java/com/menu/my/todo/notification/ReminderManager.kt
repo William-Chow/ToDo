@@ -33,10 +33,14 @@ class ReminderManager(private val context: Context) {
         // when done, because the next occurrence firing is exactly what rolls it forward and clears
         // the tick again (see ReminderReceiver.advanceRepeatingTodo).
         if (todo.isDone && repeatType == RepeatType.NONE) return
-        val baseTrigger = reminderTime - todo.advanceReminderMinutes.toLong() * MILLIS_PER_MINUTE
 
         // A one-shot reminder whose time has already passed simply isn't scheduled.
-        val triggerTime = nextOccurrence(baseTrigger, repeatType) ?: return
+        val triggerTime = reminderTrigger(
+            reminderTime = reminderTime,
+            advanceMinutes = todo.advanceReminderMinutes,
+            repeatType = repeatType,
+            now = System.currentTimeMillis()
+        ) ?: return
         schedule(todo.id, todo.title, todo.description, repeatType, triggerTime)
     }
 
@@ -81,14 +85,6 @@ class ReminderManager(private val context: Context) {
         )
 
         scheduleExact(triggerTime, pendingIntent)
-    }
-
-    /** Next future trigger time, or null for a one-shot reminder whose time has already passed. */
-    private fun nextOccurrence(baseTrigger: Long, repeatType: RepeatType): Long? {
-        if (repeatType.intervalMillis == null) {
-            return baseTrigger.takeIf { it >= System.currentTimeMillis() }
-        }
-        return rollForward(baseTrigger, repeatType)
     }
 
     /** Advances [start] by whole repeat cycles until it lands in the future. */
@@ -138,6 +134,32 @@ class ReminderManager(private val context: Context) {
 }
 
 internal const val MILLIS_PER_MINUTE = 60_000L
+
+/**
+ * When a reminder set for [reminderTime] would actually go off, given that the alarm is set
+ * [advanceMinutes] early, or null when no alarm would be set at all.
+ *
+ * Null is the whole point of asking: a one-shot reminder whose moment has gone is not scheduled,
+ * and it is not scheduled *silently* — there is no alarm to cancel and nothing to notice later. The
+ * editor asks this before it saves so that it can say so, which is why the rule lives here, on its
+ * own, rather than inline in [ReminderManager.scheduleReminder] where the editor could only
+ * approximate it and then drift.
+ *
+ * A repeating reminder never answers null. Its stored time is only the first occurrence, so one
+ * already behind [now] means "started in the past", not "over" — [occurrenceAtOrAfter] walks it up
+ * to the next one that is still to come.
+ */
+internal fun reminderTrigger(
+    reminderTime: Long,
+    advanceMinutes: Int,
+    repeatType: RepeatType,
+    now: Long,
+    zone: TimeZone = TimeZone.getDefault()
+): Long? {
+    val baseTrigger = reminderTime - advanceMinutes.toLong() * MILLIS_PER_MINUTE
+    if (repeatType.intervalMillis == null) return baseTrigger.takeIf { it >= now }
+    return repeatType.occurrenceAtOrAfter(baseTrigger, now, zone)
+}
 
 /**
  * Nominal repeat interval in millis, or null for a non-repeating reminder. Nominal because a

@@ -47,6 +47,7 @@
     <string name="date_format_short">M月d日</string>
     <string name="date_format_full">yyyy年M月d日</string>
     <string name="time_format">HH:mm</string>
+    <string name="date_time_format">M月d日 HH:mm</string>
 
     <!-- Editor screen -->
     <string name="editor_title_add">新建任务</string>
@@ -65,13 +66,16 @@
     <string name="reminder_value">提醒：%1$s</string>
     <string name="reminder_clear">清除提醒</string>
 
-    <!-- Shown when a reminder is set but the OS will drop or delay it -->
-    <string name="reminder_permission_title">提醒可能无法准时送达</string>
-    <string name="reminder_permission_notifications">• 通知权限未开启，提醒将不会显示\n</string>
-    <string name="reminder_permission_exact_alarm">• 精确闹钟权限未开启，提醒可能被延迟\n</string>
-    <string name="reminder_permission_prompt">\n是否前往系统设置开启？</string>
-    <string name="reminder_permission_open">去设置</string>
-    <string name="reminder_permission_save_anyway">仍然保存</string>
+    <!-- Shown when a reminder is set but the user would not actually hear it -->
+    <string name="reminder_problem_title">这条提醒可能收不到</string>
+    <string name="reminder_problem_notifications">• 通知权限未开启，提醒将不会显示\n</string>
+    <string name="reminder_problem_exact_alarm">• 精确闹钟权限未开启，提醒可能被延迟\n</string>
+    <string name="reminder_problem_past">• 提醒时间已经过去，这条提醒不会响\n</string>
+    <string name="reminder_problem_prompt_settings">\n是否前往系统设置开启？</string>
+    <string name="reminder_problem_prompt_edit">\n是否返回修改提醒时间？</string>
+    <string name="reminder_problem_open_settings">去设置</string>
+    <string name="reminder_problem_edit">返回修改</string>
+    <string name="reminder_problem_save_anyway">仍然保存</string>
 
     <!-- Notifications -->
     <string name="notification_channel_name">任务提醒</string>

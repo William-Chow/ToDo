@@ -121,6 +121,7 @@ import com.menu.my.todo.ads.AdBanner
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.model.TodoItem
+import com.menu.my.todo.notification.reminderTrigger
 import com.menu.my.todo.ui.theme.PriorityHigh
 import com.menu.my.todo.ui.theme.PriorityLow
 import com.menu.my.todo.ui.theme.PriorityMid
@@ -790,7 +791,7 @@ fun TodoInputScreen(
     var reminderTime by remember { mutableStateOf(todoItem?.reminderTime) }
     var repeatType by remember { mutableStateOf(todoItem?.repeatType ?: RepeatType.NONE) }
     var advanceMinutes by remember { mutableIntStateOf(todoItem?.advanceReminderMinutes ?: 0) }
-    var showPermissionDialog by remember { mutableStateOf(false) }
+    var showReminderProblems by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
@@ -799,8 +800,10 @@ fun TodoInputScreen(
     val locale = LocalConfiguration.current.locales[0]
     val datePattern = stringResource(R.string.date_format_full)
     val timePattern = stringResource(R.string.time_format)
+    val dateTimePattern = stringResource(R.string.date_time_format)
     val dateSdf = remember(locale, datePattern) { SimpleDateFormat(datePattern, locale) }
     val timeSdf = remember(locale, timePattern) { SimpleDateFormat(timePattern, locale) }
+    val dateTimeSdf = remember(locale, dateTimePattern) { SimpleDateFormat(dateTimePattern, locale) }
 
     BackHandler(onBack = onBack)
 
@@ -900,6 +903,14 @@ fun TodoInputScreen(
                         cal.set(Calendar.MINUTE, m)
                         cal.set(Calendar.SECOND, 0)
                         cal.set(Calendar.MILLISECOND, 0)
+                        // With no due date to hang it on, a reminder is just a clock time, and a
+                        // clock time that has gone by today means the next one round. A task that
+                        // does have a due date keeps its reminder on that day: the reminder is about
+                        // that date, and carrying it off to tomorrow would answer a different
+                        // question than the one that was asked.
+                        if (dueDate == null && cal.timeInMillis < System.currentTimeMillis()) {
+                            cal.add(Calendar.DAY_OF_MONTH, 1)
+                        }
                         reminderTime = cal.timeInMillis
                     }, init.get(Calendar.HOUR_OF_DAY), init.get(Calendar.MINUTE), true).show()
                 },
@@ -908,7 +919,12 @@ fun TodoInputScreen(
             ) {
                 Text(
                     if (reminderTime == null) stringResource(R.string.reminder_set)
-                    else stringResource(R.string.reminder_value, timeSdf.format(Date(reminderTime!!)))
+                    // With no due date shown above it, the time alone does not say which day — and
+                    // it may well be tomorrow's, so it has to.
+                    else stringResource(
+                        R.string.reminder_value,
+                        (if (dueDate == null) dateTimeSdf else timeSdf).format(Date(reminderTime!!))
+                    )
                 )
             }
             if (reminderTime != null) {
@@ -946,11 +962,12 @@ fun TodoInputScreen(
             Button(
                 onClick = {
                     if (title.isBlank()) return@Button
-                    // Warn (once) if a reminder is set but the OS will silently drop or delay it.
-                    if (reminderTime != null &&
-                        (!areNotificationsEnabled(context) || !canScheduleExactAlarms(context))
+                    // Warn (once) if a reminder is set that the user would never actually hear.
+                    val reminder = reminderTime
+                    if (reminder != null &&
+                        reminderProblems(context, reminder, advanceMinutes, repeatType).isNotEmpty()
                     ) {
-                        showPermissionDialog = true
+                        showReminderProblems = true
                     } else {
                         save()
                     }
@@ -962,32 +979,40 @@ fun TodoInputScreen(
         }
     }
 
-    if (showPermissionDialog) {
-        val notificationsEnabled = areNotificationsEnabled(context)
-        val exactAlarmsAllowed = canScheduleExactAlarms(context)
-        val notificationsWarning = stringResource(R.string.reminder_permission_notifications)
-        val exactAlarmWarning = stringResource(R.string.reminder_permission_exact_alarm)
-        val settingsPrompt = stringResource(R.string.reminder_permission_prompt)
-        val message = buildString {
-            if (!notificationsEnabled) append(notificationsWarning)
-            if (!exactAlarmsAllowed) append(exactAlarmWarning)
-            append(settingsPrompt)
-        }
+    val reminderUnderReview = reminderTime
+    if (showReminderProblems && reminderUnderReview != null) {
+        val problems = reminderProblems(context, reminderUnderReview, advanceMinutes, repeatType)
+        // A trip to settings fixes a permission, but not a time that has already gone by, so when
+        // that is the only thing wrong the way out is the editor the user is already standing in.
+        val settingsWouldHelp = problems.any { it != R.string.reminder_problem_past }
+        val message = problems.map { stringResource(it) }.joinToString("") + stringResource(
+            if (settingsWouldHelp) R.string.reminder_problem_prompt_settings
+            else R.string.reminder_problem_prompt_edit
+        )
         AlertDialog(
-            onDismissRequest = { showPermissionDialog = false },
-            title = { Text(stringResource(R.string.reminder_permission_title)) },
+            onDismissRequest = { showReminderProblems = false },
+            title = { Text(stringResource(R.string.reminder_problem_title)) },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = {
-                    showPermissionDialog = false
-                    openReminderSettings(context, notificationsEnabled)
-                }) { Text(stringResource(R.string.reminder_permission_open)) }
+                    showReminderProblems = false
+                    if (settingsWouldHelp) {
+                        openReminderSettings(context, areNotificationsEnabled(context))
+                    }
+                }) {
+                    Text(
+                        stringResource(
+                            if (settingsWouldHelp) R.string.reminder_problem_open_settings
+                            else R.string.reminder_problem_edit
+                        )
+                    )
+                }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    showPermissionDialog = false
+                    showReminderProblems = false
                     save()
-                }) { Text(stringResource(R.string.reminder_permission_save_anyway)) }
+                }) { Text(stringResource(R.string.reminder_problem_save_anyway)) }
             }
         )
     }
@@ -1100,6 +1125,31 @@ private fun dueLabel(dueDate: Long, locale: Locale): String = when (dueDayDiff(d
     1 -> stringResource(R.string.due_tomorrow)
     -1 -> stringResource(R.string.due_yesterday)
     else -> SimpleDateFormat(stringResource(R.string.date_format_short), locale).format(Date(dueDate))
+}
+
+// ---- Will the user actually hear this? ------------------------------------
+
+/**
+ * Why this reminder would not reach the user, as string resources in the order they are shown.
+ * Empty when nothing is in its way.
+ *
+ * The last of the three is the one the editor had no way of seeing before: [reminderTrigger] drops
+ * a one-shot reminder whose moment has gone rather than scheduling it, so the task was left naming
+ * a time that nothing was ever going to act on. Asking the scheduler itself is what keeps the
+ * warning and the behaviour from drifting apart — a repeating reminder, which starts over rather
+ * than expiring, is not warned about because the scheduler does not drop it.
+ */
+private fun reminderProblems(
+    context: Context,
+    reminderTime: Long,
+    advanceMinutes: Int,
+    repeatType: RepeatType
+): List<Int> = buildList {
+    if (!areNotificationsEnabled(context)) add(R.string.reminder_problem_notifications)
+    if (!canScheduleExactAlarms(context)) add(R.string.reminder_problem_exact_alarm)
+    if (reminderTrigger(reminderTime, advanceMinutes, repeatType, System.currentTimeMillis()) == null) {
+        add(R.string.reminder_problem_past)
+    }
 }
 
 // ---- Permission helpers ---------------------------------------------------
