@@ -10,7 +10,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -94,8 +94,17 @@ fun TodoTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            val bars = WindowCompat.getInsetsController(window, view)
+            // Nothing paints the system bars any more. Window.setStatusBarColor is deprecated and
+            // has been a no-op since API 35, so on a current device it was already doing nothing —
+            // it only still applied below 35, which is what made the status bar look different on
+            // old and new phones. All that is left to decide is whether the bars' icons are drawn
+            // light or dark, and that follows what is actually behind them: the TopAppBar, which is
+            // `primary`, and the NavigationBar, which is `surface`. Reading the luminance rather
+            // than the chosen theme is what keeps it right under Material You, where the scheme
+            // comes from the wallpaper and a light theme's `primary` need not be dark.
+            bars.isAppearanceLightStatusBars = colorScheme.primary.luminance() > 0.5f
+            bars.isAppearanceLightNavigationBars = colorScheme.surface.luminance() > 0.5f
         }
     }
 
