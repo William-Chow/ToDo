@@ -11,9 +11,10 @@ import org.junit.Assert.*
 /**
  * Which list a task turns up in.
  *
- * The case worth pinning is the late one: a task whose due date has gone past used to fall between
- * TODAY, which stopped at this morning, and UPCOMING, which starts tomorrow, and so appeared under
- * no filter at all. It belongs in TODAY, which is the list of what is still owed.
+ * The cases worth pinning are the two that used to fall through. A task whose due date had gone past
+ * sat between TODAY, which stopped at this morning, and UPCOMING, which starts tomorrow; a task with
+ * no due date at all — what a task saved with nothing but a title is — matched neither by
+ * construction. Both belong in TODAY, which is the list of what is still owed.
  */
 class CategoryFilterTest {
 
@@ -69,13 +70,23 @@ class CategoryFilterTest {
     }
 
     @Test
-    fun anUndatedTaskIsOnlyInAll() {
+    fun anUndatedTaskIsOwedNowRatherThanUpcoming() {
+        // Nothing about it is in the future, so there is no day for it to be upcoming on.
         val undated = task(id = 1, due = null)
         val list = listOf(undated)
 
-        assertEquals(listOf(undated), categoryFilter(list, TodoCategory.ALL, TODAY_END))
-        assertEquals(emptyList<TodoItem>(), categoryFilter(list, TodoCategory.TODAY, TODAY_END))
+        assertEquals(listOf(undated), categoryFilter(list, TodoCategory.TODAY, TODAY_END))
         assertEquals(emptyList<TodoItem>(), categoryFilter(list, TodoCategory.UPCOMING, TODAY_END))
+        assertEquals(listOf(undated), categoryFilter(list, TodoCategory.ALL, TODAY_END))
+    }
+
+    @Test
+    fun aFinishedUndatedTaskIsOnlyInCompleted() {
+        val done = task(id = 1, due = null, done = true)
+        val list = listOf(done)
+
+        assertEquals(listOf(done), categoryFilter(list, TodoCategory.COMPLETED, TODAY_END))
+        assertEquals(emptyList<TodoItem>(), categoryFilter(list, TodoCategory.TODAY, TODAY_END))
     }
 
     @Test

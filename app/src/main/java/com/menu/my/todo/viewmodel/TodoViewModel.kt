@@ -286,22 +286,24 @@ internal fun moveIndices(current: List<TodoItem>, fromId: Int, toId: Int): Pair<
 /**
  * The tasks [category] holds, out of [todos], for a day that ends at [todayEnd] (exclusive).
  *
- * TODAY reaches back as well as around the current day. A task whose due date has gone past is not
- * upcoming and is not completed, so bounding TODAY at the start of the day as well left it matching
- * no category at all: it was reachable only under ALL, which is both the longest list to lose it in
- * and the one place its overdue styling was least likely to be looked at. Being late is something
- * the row says; which list a task is in only ever answers "is it still owed".
+ * TODAY is everything still owed that is not being put off: due today, due before today, or never
+ * given a date at all. Only a date in the future takes a task out of it, into UPCOMING. Bounding
+ * TODAY at both ends of the current day instead left two kinds of task matching no category
+ * whatever — the late ones, and the undated ones, which is the state every task is born in and the
+ * state a task saved with nothing but a title stays in. Both were reachable only under ALL, the
+ * longest list to lose them in and the one mixed in with everything already finished. Whether a
+ * task is late is something its row says; which list it is in only ever answers "is it still owed".
  *
- * A task with no due date at all belongs to no day and still shows up only under ALL. That is the
- * same hole one filter over, and closing it means deciding where an undated task ought to live
- * rather than moving a boundary, so it is left as it stands.
+ * What that costs is that TODAY is only ever as short as the undated backlog. It is the better half
+ * of the trade: a task the user could pick up right now sits in the list of what to do right now,
+ * and one that has grown long is at least telling the truth about how much is outstanding.
  */
 internal fun categoryFilter(
     todos: List<TodoItem>,
     category: TodoCategory,
     todayEnd: Long
 ): List<TodoItem> = when (category) {
-    TodoCategory.TODAY -> todos.filter { !it.isDone && it.dueDate != null && it.dueDate < todayEnd }
+    TodoCategory.TODAY -> todos.filter { !it.isDone && (it.dueDate == null || it.dueDate < todayEnd) }
     TodoCategory.UPCOMING -> todos.filter { !it.isDone && it.dueDate != null && it.dueDate >= todayEnd }
     TodoCategory.COMPLETED -> todos.filter { it.isDone }
     TodoCategory.ALL -> todos.toList()
