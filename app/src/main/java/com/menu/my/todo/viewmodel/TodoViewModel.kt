@@ -13,8 +13,10 @@ import com.menu.my.todo.model.TodoItem
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.notification.ReminderManager
+import com.menu.my.todo.notification.rolledOntoDay
 import com.menu.my.todo.ui.theme.ThemeMode
 import java.util.Calendar
+import java.util.TimeZone
 
 enum class Screen {
     List, Input
@@ -119,22 +121,31 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         TodoStorage.save(prefs, todoList.toList())
     }
 
-    /** Start (inclusive) and end (exclusive) timestamps of the current calendar day. */
-    private fun todayBounds(): Pair<Long, Long> {
-        val start = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-        return start to start + MILLIS_PER_DAY
+    /**
+     * Moves every repeating task onto the occurrence whose day has started (see [rolledOntoDay]).
+     * Called whenever the app comes to the foreground, which is when "today" may have moved on.
+     *
+     * No alarm is touched: the one already queued is for the next occurrence still to come, and the
+     * roll does not change which that is.
+     */
+    fun rollRepeatingTasks() {
+        val (todayStart, _) = todayBounds()
+        var rolledAny = false
+        for (index in todoList.indices) {
+            val rolled = todoList[index].rolledOntoDay(todayStart) ?: continue
+            todoList[index] = rolled
+            rolledAny = true
+        }
+        if (rolledAny) saveTodos()
     }
 
-    /** Tasks due today as (done, total) — drives the "today's progress" header. */
+    /** Start (inclusive) and end (exclusive) timestamps of the current calendar day. */
+    private fun todayBounds(): Pair<Long, Long> = dayBounds(System.currentTimeMillis())
+
+    /** (done, total) for the "today's progress" header — see [todayProgress]. */
     fun todayProgress(): Pair<Int, Int> {
         val (start, end) = todayBounds()
-        val todays = todoList.filter { it.dueDate != null && it.dueDate in start until end }
-        return todays.count { it.isDone } to todays.size
+        return todayProgress(todoList, start, end)
     }
 
     fun getFilteredList(): List<TodoItem> {
@@ -264,8 +275,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleDone(item: TodoItem) {
-        val updatedItem = item.copy(isDone = !item.isDone)
-        updateTodo(updatedItem)
+        updateTodo(item.withDone(!item.isDone, System.currentTimeMillis()))
     }
 }
 
@@ -281,6 +291,27 @@ internal fun moveIndices(current: List<TodoItem>, fromId: Int, toId: Int): Pair<
     val from = current.indexOfFirst { it.id == fromId }
     val to = current.indexOfFirst { it.id == toId }
     return if (from == -1 || to == -1 || from == to) null else from to to
+}
+
+/**
+ * Start (inclusive) and end (exclusive) of the calendar day [now] falls on, in [zone].
+ *
+ * The end is the next day's midnight, found by stepping the calendar a day rather than adding 24
+ * hours. The day a daylight-saving change starts is 23 hours long, so start + 24h is already an hour
+ * into tomorrow, and a task due tomorrow — stored as tomorrow's midnight — would count as due today
+ * all day long.
+ */
+internal fun dayBounds(now: Long, zone: TimeZone = TimeZone.getDefault()): Pair<Long, Long> {
+    val calendar = Calendar.getInstance(zone).apply {
+        timeInMillis = now
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    val start = calendar.timeInMillis
+    calendar.add(Calendar.DAY_OF_MONTH, 1)
+    return start to calendar.timeInMillis
 }
 
 /**
@@ -308,6 +339,30 @@ internal fun categoryFilter(
     TodoCategory.COMPLETED -> todos.filter { it.isDone }
     TodoCategory.ALL -> todos.toList()
 }
+
+/**
+ * Today's progress as (done, total), measured against the TODAY list ([categoryFilter]) rather
+ * than against the tasks whose due date happens to be today.
+ *
+ * Total is what is still owed now plus what has been finished today, and done is the latter, so
+ * total minus done is always exactly the length of the TODAY list — the header and the list under it
+ * cannot disagree about how much is left. Finishing a late or an undated task moves the bar the same
+ * way finishing one due today does. A task finished early, while its date was still to come, was
+ * never on today's list and is not counted.
+ */
+internal fun todayProgress(todos: List<TodoItem>, todayStart: Long, todayEnd: Long): Pair<Int, Int> {
+    val owed = categoryFilter(todos, TodoCategory.TODAY, todayEnd).size
+    val finished = todos.count {
+        it.isDone &&
+            it.completedAt != null && it.completedAt in todayStart until todayEnd &&
+            (it.dueDate == null || it.dueDate < todayEnd)
+    }
+    return finished to finished + owed
+}
+
+/** This task ticked on or off at [now], keeping [TodoItem.completedAt] in step with the tick. */
+internal fun TodoItem.withDone(done: Boolean, now: Long): TodoItem =
+    copy(isDone = done, completedAt = if (done) now else null)
 
 /**
  * What a save from the editor should write: the fields the editor owns, applied to the task as it
@@ -388,7 +443,6 @@ internal class TodoIdCounter(
     }
 }
 
-private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 private const val KEY_THEME_MODE = "theme_mode"
 private const val KEY_CATEGORY = "category"
 private const val KEY_SORT = "sort"

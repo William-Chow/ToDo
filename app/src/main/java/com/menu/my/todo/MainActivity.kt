@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.ads.MobileAds
@@ -45,6 +46,12 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val viewModel: TodoViewModel = viewModel()
+            // Coming back to the app is when the day may have turned over since the list was last
+            // looked at, so it is when repeating tasks catch up with it.
+            LifecycleResumeEffect(viewModel) {
+                viewModel.rollRepeatingTasks()
+                onPauseOrDispose { }
+            }
             TodoTheme(themeMode = viewModel.themeMode) {
                 TodoApp(viewModel, onTaskSaved = { interstitialAds.onTaskSaved() })
             }

@@ -17,5 +17,11 @@ data class TodoItem(
     val dueDate: Long? = null,
     val reminderTime: Long? = null,
     val repeatType: RepeatType? = RepeatType.NONE,
-    val advanceReminderMinutes: Int = 0
+    val advanceReminderMinutes: Int = 0,
+    /**
+     * When the task was last ticked off, or null while it is not done. Tasks stored before this
+     * field existed read back null whatever their state, which only means they are not counted as
+     * finished *today*.
+     */
+    val completedAt: Long? = null
 )

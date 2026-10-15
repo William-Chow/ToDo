@@ -121,6 +121,7 @@ import com.menu.my.todo.ads.AdBanner
 import com.menu.my.todo.model.Priority
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.model.TodoItem
+import com.menu.my.todo.notification.calendarDaysBetween
 import com.menu.my.todo.notification.reminderTrigger
 import com.menu.my.todo.ui.theme.PriorityHigh
 import com.menu.my.todo.ui.theme.PriorityLow
@@ -133,6 +134,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -797,6 +799,16 @@ fun TodoInputScreen(
 
     fun save() = onSaveTodo(title, description, priority, dueDate, reminderTime, repeatType, advanceMinutes)
 
+    fun problemsWith(reminder: Long) = reminderProblems(
+        opened = todoItem,
+        reminderTime = reminder,
+        advanceMinutes = advanceMinutes,
+        repeatType = repeatType,
+        now = System.currentTimeMillis(),
+        notificationsEnabled = areNotificationsEnabled(context),
+        exactAlarmsAllowed = canScheduleExactAlarms(context)
+    )
+
     val locale = LocalConfiguration.current.locales[0]
     val datePattern = stringResource(R.string.date_format_full)
     val timePattern = stringResource(R.string.time_format)
@@ -897,21 +909,7 @@ fun TodoInputScreen(
                 onClick = {
                     val init = Calendar.getInstance().apply { reminderTime?.let { timeInMillis = it } }
                     TimePickerDialog(context, { _, h, m ->
-                        // Anchor the reminder to the due date if one is set, otherwise today.
-                        val cal = Calendar.getInstance().apply { dueDate?.let { timeInMillis = it } }
-                        cal.set(Calendar.HOUR_OF_DAY, h)
-                        cal.set(Calendar.MINUTE, m)
-                        cal.set(Calendar.SECOND, 0)
-                        cal.set(Calendar.MILLISECOND, 0)
-                        // With no due date to hang it on, a reminder is just a clock time, and a
-                        // clock time that has gone by today means the next one round. A task that
-                        // does have a due date keeps its reminder on that day: the reminder is about
-                        // that date, and carrying it off to tomorrow would answer a different
-                        // question than the one that was asked.
-                        if (dueDate == null && cal.timeInMillis < System.currentTimeMillis()) {
-                            cal.add(Calendar.DAY_OF_MONTH, 1)
-                        }
-                        reminderTime = cal.timeInMillis
+                        reminderTime = pickedReminderTime(h, m, dueDate, advanceMinutes, System.currentTimeMillis())
                     }, init.get(Calendar.HOUR_OF_DAY), init.get(Calendar.MINUTE), true).show()
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -952,7 +950,13 @@ fun TodoInputScreen(
 
                 OutlinedTextField(
                     value = if (advanceMinutes == 0) "" else advanceMinutes.toString(),
-                    onValueChange = { advanceMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, MAX_ADVANCE_MINUTES) },
+                    onValueChange = {
+                        advanceMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, MAX_ADVANCE_MINUTES)
+                        val reminder = reminderTime
+                        if (dueDate == null && reminder != null) {
+                            reminderTime = undatedReminderForAdvance(reminder, advanceMinutes, System.currentTimeMillis())
+                        }
+                    },
                     label = { Text(stringResource(R.string.field_advance_minutes)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
@@ -964,9 +968,7 @@ fun TodoInputScreen(
                     if (title.isBlank()) return@Button
                     // Warn (once) if a reminder is set that the user would never actually hear.
                     val reminder = reminderTime
-                    if (reminder != null &&
-                        reminderProblems(context, reminder, advanceMinutes, repeatType).isNotEmpty()
-                    ) {
+                    if (reminder != null && problemsWith(reminder).isNotEmpty()) {
                         showReminderProblems = true
                     } else {
                         save()
@@ -981,7 +983,7 @@ fun TodoInputScreen(
 
     val reminderUnderReview = reminderTime
     if (showReminderProblems && reminderUnderReview != null) {
-        val problems = reminderProblems(context, reminderUnderReview, advanceMinutes, repeatType)
+        val problems = problemsWith(reminderUnderReview)
         // A trip to settings fixes a permission, but not a time that has already gone by, so when
         // that is the only thing wrong the way out is the editor the user is already standing in.
         val settingsWouldHelp = problems.any { it != R.string.reminder_problem_past }
@@ -1105,25 +1107,24 @@ private fun repeatLabelRes(repeatType: RepeatType?): Int = when (repeatType ?: R
     RepeatType.WEEKLY -> R.string.repeat_weekly
 }
 
-/** Whole-day difference between [dueDate] and today (negative = past). */
-private fun dueDayDiff(dueDate: Long): Int {
-    fun midnight(millis: Long) = Calendar.getInstance().apply {
-        timeInMillis = millis
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
-    return ((midnight(dueDate) - midnight(System.currentTimeMillis())) / (24L * 60 * 60 * 1000)).toInt()
-}
+/** Calendar days from today to [dueDate] (negative = past). See [calendarDaysBetween]. */
+internal fun dueDayDiff(
+    dueDate: Long,
+    now: Long = System.currentTimeMillis(),
+    zone: TimeZone = TimeZone.getDefault()
+): Long = calendarDaysBetween(now, dueDate, zone)
 
-private fun isOverdue(dueDate: Long): Boolean = dueDayDiff(dueDate) < 0
+internal fun isOverdue(
+    dueDate: Long,
+    now: Long = System.currentTimeMillis(),
+    zone: TimeZone = TimeZone.getDefault()
+): Boolean = dueDayDiff(dueDate, now, zone) < 0
 
 @Composable
 private fun dueLabel(dueDate: Long, locale: Locale): String = when (dueDayDiff(dueDate)) {
-    0 -> stringResource(R.string.due_today)
-    1 -> stringResource(R.string.due_tomorrow)
-    -1 -> stringResource(R.string.due_yesterday)
+    0L -> stringResource(R.string.due_today)
+    1L -> stringResource(R.string.due_tomorrow)
+    -1L -> stringResource(R.string.due_yesterday)
     else -> SimpleDateFormat(stringResource(R.string.date_format_short), locale).format(Date(dueDate))
 }
 
@@ -1131,25 +1132,111 @@ private fun dueLabel(dueDate: Long, locale: Locale): String = when (dueDayDiff(d
 
 /**
  * Why this reminder would not reach the user, as string resources in the order they are shown.
- * Empty when nothing is in its way.
+ * Empty when nothing is in its way. [opened] is the task as the editor opened it, or null for a new
+ * one.
  *
- * The last of the three is the one the editor had no way of seeing before: [reminderTrigger] drops
- * a one-shot reminder whose moment has gone rather than scheduling it, so the task was left naming
- * a time that nothing was ever going to act on. Asking the scheduler itself is what keeps the
- * warning and the behaviour from drifting apart — a repeating reminder, which starts over rather
- * than expiring, is not warned about because the scheduler does not drop it.
+ * A one-shot reminder whose moment has gone is the case the editor had no way of seeing before:
+ * [reminderTrigger] drops it rather than scheduling it, so the task was left naming a time nothing
+ * was ever going to act on. Asking the scheduler itself is what keeps the warning and the behaviour
+ * from drifting apart — a repeating reminder, which starts over rather than expiring, is not warned
+ * about because the scheduler does not drop it.
+ *
+ * That warning is for a reminder being *set* that way, though, not for one left as it was. A past
+ * one-shot reminder on a task opened for some other edit has almost always already gone off; it
+ * did its job, and saying it never will is both wrong and, since it would come back on every save
+ * of that task, a nag. Nothing is going to be scheduled for a dropped reminder either way, so the
+ * permissions it would need are no longer worth a word about.
  */
-private fun reminderProblems(
-    context: Context,
+internal fun reminderProblems(
+    opened: TodoItem?,
     reminderTime: Long,
     advanceMinutes: Int,
-    repeatType: RepeatType
-): List<Int> = buildList {
-    if (!areNotificationsEnabled(context)) add(R.string.reminder_problem_notifications)
-    if (!canScheduleExactAlarms(context)) add(R.string.reminder_problem_exact_alarm)
-    if (reminderTrigger(reminderTime, advanceMinutes, repeatType, System.currentTimeMillis()) == null) {
-        add(R.string.reminder_problem_past)
+    repeatType: RepeatType,
+    now: Long,
+    notificationsEnabled: Boolean,
+    exactAlarmsAllowed: Boolean
+): List<Int> {
+    if (reminderTrigger(reminderTime, advanceMinutes, repeatType, now) == null) {
+        val leftAsItWas = opened != null &&
+            opened.reminderTime == reminderTime &&
+            opened.advanceReminderMinutes == advanceMinutes &&
+            (opened.repeatType ?: RepeatType.NONE) == repeatType
+        return if (leftAsItWas) emptyList() else listOf(R.string.reminder_problem_past)
     }
+    return buildList {
+        if (!notificationsEnabled) add(R.string.reminder_problem_notifications)
+        if (!exactAlarmsAllowed) add(R.string.reminder_problem_exact_alarm)
+    }
+}
+
+/**
+ * How many days ahead [pickedReminderTime] will look for an alarm still to come. An advance warning
+ * is at most [MAX_ADVANCE_MINUTES] — one day — so two steps always reach one.
+ */
+private const val MAX_PICK_DAYS_AHEAD = 2
+
+/**
+ * The reminder a time picked as [hour]:[minute] stands for.
+ *
+ * A task with a due date keeps its reminder on that day, gone by or not: the reminder is about that
+ * date, and carrying it off to tomorrow would answer a different question than the one that was
+ * asked. With no date to hang it on, a reminder is just a clock time, and one whose alarm has gone
+ * by today means the next one round. *Its alarm*, not the time itself: the alarm goes off
+ * [advanceMinutes] early, and the scheduler ([reminderTrigger]) drops a one-shot alarm that is
+ * already behind it, so 09:10 picked at 09:00 with a 30-minute warning is tomorrow's 09:10, not a
+ * reminder that silently never fires.
+ */
+internal fun pickedReminderTime(
+    hour: Int,
+    minute: Int,
+    dueDate: Long?,
+    advanceMinutes: Int,
+    now: Long,
+    zone: TimeZone = TimeZone.getDefault()
+): Long {
+    val calendar = Calendar.getInstance(zone).apply {
+        timeInMillis = dueDate ?: now
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    if (dueDate != null) return calendar.timeInMillis
+    var days = 0
+    while (days < MAX_PICK_DAYS_AHEAD &&
+        reminderTrigger(calendar.timeInMillis, advanceMinutes, RepeatType.NONE, now, zone) == null
+    ) {
+        calendar.add(Calendar.DAY_OF_MONTH, 1)
+        days++
+    }
+    return calendar.timeInMillis
+}
+
+/**
+ * An undated [reminderTime] once its advance warning has become [advanceMinutes]: left where it is
+ * while its alarm is still to come, and otherwise picked again from its clock time, exactly as
+ * [pickedReminderTime] would have picked it with this warning already set.
+ *
+ * The time picker is not the only way to put an undated reminder's alarm behind it — the usual
+ * order is a time first and the warning after — and the editor would otherwise be back to saving a
+ * reminder that is dropped on the spot.
+ */
+internal fun undatedReminderForAdvance(
+    reminderTime: Long,
+    advanceMinutes: Int,
+    now: Long,
+    zone: TimeZone = TimeZone.getDefault()
+): Long {
+    if (reminderTrigger(reminderTime, advanceMinutes, RepeatType.NONE, now, zone) != null) return reminderTime
+    val clock = Calendar.getInstance(zone).apply { timeInMillis = reminderTime }
+    return pickedReminderTime(
+        clock.get(Calendar.HOUR_OF_DAY),
+        clock.get(Calendar.MINUTE),
+        dueDate = null,
+        advanceMinutes = advanceMinutes,
+        now = now,
+        zone = zone
+    )
 }
 
 // ---- Permission helpers ---------------------------------------------------

@@ -41,11 +41,12 @@ class ReminderReceiver : BroadcastReceiver() {
      * behind: a completed "daily" task would stay COMPLETED forever, and an untouched one would keep
      * the due date of its very first occurrence.
      *
-     * The roll only happens when an alarm fires, so the due date trails the calendar: it names the
-     * occurrence that is *ending*, not the one coming up. A daily task with a 22:00 reminder is
-     * therefore not in the TODAY filter at noon — it gets there at 22:00. Matching the filter would
-     * mean rolling on a date boundary (or lazily, on read) instead, which is more than a broadcast
-     * receiver can do.
+     * On its own, rolling here would leave the due date trailing the calendar: it would name the
+     * occurrence that is *ending* until the next one's alarm, so a daily task with a 22:00 reminder
+     * would spend every day until 22:00 marked overdue from yesterday. The app moves the task on when
+     * the occurrence's day starts instead (see [rolledOntoDay]), which makes this roll a no-op for an
+     * occurrence the task has already reached. It still does the job on a day the app is never
+     * opened.
      */
     private fun advanceRepeatingTodo(context: Context, todoId: Int, triggerTime: Long) {
         val prefs = TodoStorage.prefs(context)
@@ -122,7 +123,48 @@ internal fun TodoItem.advanceToOccurrence(
 
     return copy(
         isDone = false,
+        completedAt = null,
         dueDate = dueDate?.let { repeat.occurrenceAfter(it, cycles, zone) },
         reminderTime = repeat.occurrenceAfter(reminder, cycles, zone)
+    )
+}
+
+/**
+ * This task moved onto the latest occurrence whose day has begun by [todayStart]: the due date and
+ * the reminder time step forward by whole repeat cycles, and the task counts as not done again.
+ * Returns null when there is nothing to move — the task does not repeat, has neither date, or is
+ * already on the current occurrence (or ahead of it, as an advance warning that reaches back past
+ * midnight can leave it).
+ *
+ * This is [advanceToOccurrence] brought forward from the alarm to the start of the day, so that on
+ * the day of an occurrence the task names that occurrence. Without it a daily task due yesterday
+ * would read as overdue all day until its reminder fired, and one ticked off yesterday would sit in
+ * COMPLETED through the day it is next owed. An occurrence the user did not get to is replaced, not
+ * kept as a backlog, exactly as the alarm's roll has always done.
+ *
+ * Cycles are counted in calendar days from the due date — or from the reminder for an undated task —
+ * so a weekly task moves only once the next occurrence's day arrives; until then a missed one stays
+ * overdue, which it is.
+ */
+internal fun TodoItem.rolledOntoDay(
+    todayStart: Long,
+    zone: TimeZone = TimeZone.getDefault()
+): TodoItem? {
+    val repeat = repeatType ?: RepeatType.NONE
+    val anchor = dueDate ?: reminderTime ?: return null
+    val days = calendarDaysBetween(anchor, todayStart, zone)
+    val cycles = when (repeat) {
+        RepeatType.NONE -> return null
+        RepeatType.DAILY -> days
+        RepeatType.WEEKLY -> days / 7
+    }
+    // Past Int, the anchor is a corrupt timestamp rather than a missed occurrence; leave it alone.
+    if (cycles <= 0 || cycles > Int.MAX_VALUE) return null
+
+    return copy(
+        isDone = false,
+        completedAt = null,
+        dueDate = dueDate?.let { repeat.occurrenceAfter(it, cycles.toInt(), zone) },
+        reminderTime = reminderTime?.let { repeat.occurrenceAfter(it, cycles.toInt(), zone) }
     )
 }

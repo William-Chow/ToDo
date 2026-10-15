@@ -7,6 +7,8 @@ import android.content.Intent
 import android.os.Build
 import com.menu.my.todo.model.RepeatType
 import com.menu.my.todo.model.TodoItem
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -205,6 +207,22 @@ internal fun RepeatType.occurrenceAfter(
         RepeatType.WEEKLY -> calendar.add(Calendar.WEEK_OF_YEAR, cycles)
     }
     return calendar.timeInMillis
+}
+
+/**
+ * How many calendar days lie between the day [from] falls on and the day [to] falls on, in [zone]
+ * (negative when [to] is the earlier day).
+ *
+ * Days, not multiples of 24 hours: the two days a year a daylight-saving change makes 23 or 25 hours
+ * long are still one day each, which dividing the millis between two midnights does not give — a
+ * 23-hour gap truncates to zero, and the day before reads as today.
+ */
+internal fun calendarDaysBetween(from: Long, to: Long, zone: TimeZone = TimeZone.getDefault()): Long {
+    val id = zone.toZoneId()
+    return ChronoUnit.DAYS.between(
+        Instant.ofEpochMilli(from).atZone(id).toLocalDate(),
+        Instant.ofEpochMilli(to).atZone(id).toLocalDate()
+    )
 }
 
 /**
