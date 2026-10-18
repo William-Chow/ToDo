@@ -133,7 +133,6 @@ import com.menu.my.todo.viewmodel.TodoCategory
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
-import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -146,6 +145,8 @@ fun TodoListScreen(
     currentCategory: TodoCategory,
     searchQuery: String,
     currentSort: SortOrder,
+    /** The midnight that started the day the list is drawn for, which rows read their dates against. */
+    todayStart: Long,
     todayDone: Int,
     todayTotal: Int,
     onSearchChange: (String) -> Unit,
@@ -235,7 +236,9 @@ fun TodoListScreen(
                                     TodoCategory.COMPLETED -> Icons.Default.CheckCircle
                                     TodoCategory.ALL -> Icons.AutoMirrored.Filled.List
                                 }
-                                Icon(imageVector = icon, contentDescription = stringResource(categoryLabelRes(category)))
+                                // The label beside it already names the tab; describing the icon too
+                                // has a screen reader say every tab's name twice.
+                                Icon(imageVector = icon, contentDescription = null)
                             }
                         )
                     }
@@ -288,6 +291,7 @@ fun TodoListScreen(
                         val id by rememberUpdatedState(item.id)
                         TodoRow(
                             item = item,
+                            todayStart = todayStart,
                             onToggleDone = { onToggleDone(item) },
                             onEdit = { onEditTodoClick(item) },
                             onDelete = {
@@ -651,6 +655,9 @@ private fun EmptyState(onAddTodoClick: () -> Unit) {
 @Composable
 fun TodoRow(
     item: TodoItem,
+    // Passed in rather than read off the clock so that the row redraws when the day turns over —
+    // a row whose task has not changed is otherwise skipped, and would go on saying "tomorrow".
+    todayStart: Long,
     onToggleDone: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -659,6 +666,8 @@ fun TodoRow(
     dragHandleModifier: Modifier? = null
 ) {
     val locale = LocalConfiguration.current.locales[0]
+    val otherDayPattern = stringResource(R.string.date_format_short)
+    val otherDayFormat = remember(locale, otherDayPattern) { SimpleDateFormat(otherDayPattern, locale) }
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -717,9 +726,9 @@ fun TodoRow(
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
                     if (item.dueDate != null) {
-                        val overdue = !item.isDone && isOverdue(item.dueDate)
+                        val overdue = !item.isDone && isOverdue(item.dueDate, todayStart)
                         Pill(
-                            text = dueLabel(item.dueDate, locale),
+                            text = dueLabel(item.dueDate, todayStart, otherDayFormat),
                             icon = Icons.Default.Event,
                             container = if (overdue) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant,
                             content = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1053,6 +1062,7 @@ fun TodoListPreview() {
             currentCategory = TodoCategory.ALL,
             searchQuery = "",
             currentSort = SortOrder.MANUAL,
+            todayStart = System.currentTimeMillis(),
             todayDone = 1,
             todayTotal = 3,
             onSearchChange = {},
@@ -1121,12 +1131,13 @@ internal fun isOverdue(
 ): Boolean = dueDayDiff(dueDate, now, zone) < 0
 
 @Composable
-private fun dueLabel(dueDate: Long, locale: Locale): String = when (dueDayDiff(dueDate)) {
-    0L -> stringResource(R.string.due_today)
-    1L -> stringResource(R.string.due_tomorrow)
-    -1L -> stringResource(R.string.due_yesterday)
-    else -> SimpleDateFormat(stringResource(R.string.date_format_short), locale).format(Date(dueDate))
-}
+private fun dueLabel(dueDate: Long, todayStart: Long, otherDayFormat: SimpleDateFormat): String =
+    when (dueDayDiff(dueDate, todayStart)) {
+        0L -> stringResource(R.string.due_today)
+        1L -> stringResource(R.string.due_tomorrow)
+        -1L -> stringResource(R.string.due_yesterday)
+        else -> otherDayFormat.format(Date(dueDate))
+    }
 
 // ---- Will the user actually hear this? ------------------------------------
 

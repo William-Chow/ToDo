@@ -3,6 +3,7 @@ package com.menu.my.todo.viewmodel
 import android.app.Application
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -54,6 +55,15 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     var currentScreen by mutableStateOf(Screen.List)
     var editingTodo by mutableStateOf<TodoItem?>(null)
+
+    /**
+     * The midnight that started the day the lists are drawn for. It is state, and every read that
+     * depends on the day goes through it, so that when [catchUpWithToday] moves it on the screen
+     * redraws: tasks due today leave UPCOMING for TODAY, and a row that said "tomorrow" says
+     * "today", without a task having changed.
+     */
+    var todayStart by mutableLongStateOf(dayBounds(System.currentTimeMillis()).first)
+        private set
 
     // Holds the most recently deleted item (with its position) so a delete can be undone.
     private var lastDeleted: Pair<Int, TodoItem>? = null
@@ -122,14 +132,22 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Brings the lists up to the day it is now: moves [todayStart] on if the day has turned, and
+     * every repeating task onto the occurrence whose day has started. Called when the app comes to
+     * the foreground and again at each midnight while it stays there.
+     */
+    fun catchUpWithToday() {
+        todayStart = dayBounds(System.currentTimeMillis()).first
+        rollRepeatingTasks()
+    }
+
+    /**
      * Moves every repeating task onto the occurrence whose day has started (see [rolledOntoDay]).
-     * Called whenever the app comes to the foreground, which is when "today" may have moved on.
      *
      * No alarm is touched: the one already queued is for the next occurrence still to come, and the
      * roll does not change which that is.
      */
-    fun rollRepeatingTasks() {
-        val (todayStart, _) = todayBounds()
+    private fun rollRepeatingTasks() {
         var rolledAny = false
         for (index in todoList.indices) {
             val rolled = todoList[index].rolledOntoDay(todayStart) ?: continue
@@ -139,8 +157,8 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         if (rolledAny) saveTodos()
     }
 
-    /** Start (inclusive) and end (exclusive) timestamps of the current calendar day. */
-    private fun todayBounds(): Pair<Long, Long> = dayBounds(System.currentTimeMillis())
+    /** Start (inclusive) and end (exclusive) of the day the lists are drawn for — see [todayStart]. */
+    private fun todayBounds(): Pair<Long, Long> = dayBounds(todayStart)
 
     /** (done, total) for the "today's progress" header — see [todayProgress]. */
     fun todayProgress(): Pair<Int, Int> {
@@ -313,6 +331,13 @@ internal fun dayBounds(now: Long, zone: TimeZone = TimeZone.getDefault()): Pair<
     calendar.add(Calendar.DAY_OF_MONTH, 1)
     return start to calendar.timeInMillis
 }
+
+/**
+ * How long from [now] until the next midnight in [zone] — when the day the lists show next turns
+ * over. Never zero: [now] is always inside its own day, whose end is exclusive.
+ */
+internal fun millisUntilNextDay(now: Long, zone: TimeZone = TimeZone.getDefault()): Long =
+    dayBounds(now, zone).second - now
 
 /**
  * The tasks [category] holds, out of [todos], for a day that ends at [todayEnd] (exclusive).

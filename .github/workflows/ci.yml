@@ -10,20 +10,24 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # gradle/gradle-daemon-jvm.properties pins the daemon to JDK 21. Handing it one here is what
       # keeps Gradle from provisioning its own on every run.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@v4
+      # Held at v5: v6 moves caching into a proprietary component whose terms of use come with the
+      # upgrade, which is a decision for the repository's owner rather than a version bump.
+      - uses: gradle/actions/setup-gradle@v5
 
       # compileSdk is 36.1, which the runner image does not ship. AGP will fetch it, but only once
-      # the SDK licences have been accepted.
-      - uses: android-actions/setup-android@v3
+      # the SDK licences have been accepted. v3 of this action also installs the old `tools` package,
+      # which Google has since withdrawn from the SDK repository, and fails on it before any of the
+      # build runs; v4 does not ask for it.
+      - uses: android-actions/setup-android@v4
 
       # The reminder arithmetic, the id counter and the reorder maths are all covered by tests that
       # nothing was running automatically. Lint comes along because an Android build can be green
@@ -34,7 +38,7 @@ jobs:
       # Uploaded even when the run fails — a red build is exactly when the reports are worth reading.
       - name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-and-lint-reports
           path: |

@@ -46,6 +46,18 @@ class DueDayDiffTest {
     }
 
     @Test
+    fun aRowReadsItsDateAgainstTheDayTheListIsDrawnFor() {
+        // Rows are handed the midnight that starts the list's day rather than the time now. Read
+        // against the next day's midnight — the list after the day has turned over — what was
+        // tomorrow is today, and what was today is yesterday.
+        val due = newYork(2026, 3, 9)
+
+        assertEquals(1L, dueDayDiff(due, newYork(2026, 3, 8), NEW_YORK))
+        assertEquals(0L, dueDayDiff(due, newYork(2026, 3, 9), NEW_YORK))
+        assertEquals(-1L, dueDayDiff(due, newYork(2026, 3, 10), NEW_YORK))
+    }
+
+    @Test
     fun aTaskDueTodayIsNotOverdueLateAtNight() {
         val due = newYork(2026, 3, 8)
         val now = newYork(2026, 3, 8, 23, 59)

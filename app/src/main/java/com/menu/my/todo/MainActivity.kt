@@ -9,9 +9,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.ads.MobileAds
 import com.menu.my.todo.ads.InterstitialAdController
@@ -20,7 +23,9 @@ import com.menu.my.todo.ui.screens.TodoListScreen
 import com.menu.my.todo.ui.theme.TodoTheme
 import com.menu.my.todo.viewmodel.Screen
 import com.menu.my.todo.viewmodel.TodoViewModel
+import com.menu.my.todo.viewmodel.millisUntilNextDay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -46,11 +51,18 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             val viewModel: TodoViewModel = viewModel()
-            // Coming back to the app is when the day may have turned over since the list was last
-            // looked at, so it is when repeating tasks catch up with it.
-            LifecycleResumeEffect(viewModel) {
-                viewModel.rollRepeatingTasks()
-                onPauseOrDispose { }
+            // The day can turn over while the app is away — caught up as soon as it is back on
+            // screen — or while it is open, which is what the wait for midnight is for. Stopping
+            // cancels the wait, so a phone left asleep overnight catches up when it is woken rather
+            // than relying on a timer that does not run in deep sleep.
+            val lifecycleOwner = LocalLifecycleOwner.current
+            LaunchedEffect(viewModel, lifecycleOwner) {
+                lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    while (true) {
+                        viewModel.catchUpWithToday()
+                        delay(millisUntilNextDay(System.currentTimeMillis()))
+                    }
+                }
             }
             TodoTheme(themeMode = viewModel.themeMode) {
                 TodoApp(viewModel, onTaskSaved = { interstitialAds.onTaskSaved() })
@@ -82,6 +94,7 @@ fun TodoApp(viewModel: TodoViewModel, onTaskSaved: () -> Unit = {}) {
                 currentCategory = viewModel.currentCategory,
                 searchQuery = viewModel.searchQuery,
                 currentSort = viewModel.currentSort,
+                todayStart = viewModel.todayStart,
                 todayDone = todayDone,
                 todayTotal = todayTotal,
                 onSearchChange = { viewModel.searchQuery = it },

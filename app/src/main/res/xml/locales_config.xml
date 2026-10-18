@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The languages the app is translated into, for the per-app language setting Android 13 added
+     to system settings. It lets someone whose phone is in English still have this app in Chinese,
+     and the other way round. Keep it in step with the values-* folders that hold strings.xml. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="zh-Hans" />
+</locale-config>
