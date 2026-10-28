@@ -113,8 +113,47 @@ class ReminderManager(private val context: Context) {
         }
     }
 
+    /**
+     * Shows the reminder for [todoId] again at [triggerTime], once — what the notification's snooze
+     * button asks for.
+     *
+     * The alarm is a separate one from the reminder's own, told apart by its action. An alarm is
+     * named by its PendingIntent, which is the request code (the task id) and the intent minus its
+     * extras, so a snooze queued with the reminder's own intent would *be* that alarm: snoozing a
+     * daily reminder would replace tomorrow's occurrence with one ten minutes from now, and the
+     * series would stop. ReminderReceiver shows a snoozed alarm and does nothing else, since the
+     * series was already moved on when the reminder first went off.
+     *
+     * Like every alarm, it does not survive a reboot, and BootReceiver only knows the reminder's own
+     * time — a snooze is too short-lived to be worth storing.
+     */
+    fun snooze(todoId: Int, title: String, description: String, triggerTime: Long) {
+        val intent = Intent(context, ReminderReceiver::class.java).apply {
+            action = ACTION_SNOOZED
+            putExtra(EXTRA_TITLE, title)
+            putExtra(EXTRA_DESCRIPTION, description)
+            putExtra(EXTRA_TODO_ID, todoId)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            todoId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        scheduleExact(triggerTime, pendingIntent)
+    }
+
+    /** Cancels the reminder for [todoId], and any snooze of it that is still to go off. */
     fun cancelReminder(todoId: Int) {
-        val intent = Intent(context, ReminderReceiver::class.java)
+        cancel(todoId, action = null)
+        cancelSnooze(todoId)
+    }
+
+    /** Cancels a snooze of [todoId]'s reminder, leaving the reminder's own alarm alone. */
+    fun cancelSnooze(todoId: Int) = cancel(todoId, ACTION_SNOOZED)
+
+    private fun cancel(todoId: Int, action: String?) {
+        val intent = Intent(context, ReminderReceiver::class.java).setAction(action)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             todoId,
@@ -127,6 +166,9 @@ class ReminderManager(private val context: Context) {
     }
 
     companion object {
+        /** The action of a snoozed alarm, which is what keeps it apart from the reminder's own. */
+        const val ACTION_SNOOZED = "com.menu.my.todo.action.SNOOZED_REMINDER"
+
         const val EXTRA_TITLE = "title"
         const val EXTRA_DESCRIPTION = "description"
         const val EXTRA_TODO_ID = "todoId"

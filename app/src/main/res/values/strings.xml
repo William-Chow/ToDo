@@ -82,4 +82,7 @@
     <!-- Notifications -->
     <string name="notification_channel_name">Task reminders</string>
     <string name="notification_default_title">Task reminder</string>
+    <!-- The reminder notification's buttons. Snooze puts it off for SNOOZE_MINUTES (10). -->
+    <string name="notification_action_done">Done</string>
+    <string name="notification_action_snooze">Snooze</string>
 </resources>

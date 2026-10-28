@@ -28,6 +28,10 @@ class ReminderReceiver : BroadcastReceiver() {
 
         showNotification(context, todoId, title, description)
 
+        // A snooze is a second showing of a reminder that has already gone off, and that already
+        // moved its series on when it did. There is nothing to queue after it.
+        if (intent.action == ReminderManager.ACTION_SNOOZED) return
+
         // Repeating reminders are scheduled one cycle at a time, so queue the next one now.
         if (repeatType != RepeatType.NONE && triggerTime > 0L) {
             advanceRepeatingTodo(context, todoId, triggerTime)
@@ -83,9 +87,45 @@ class ReminderReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(
+                0,
+                context.getString(R.string.notification_action_done),
+                actionIntent(context, ReminderActionReceiver.ACTION_DONE, todoId, title, description)
+            )
+            .addAction(
+                0,
+                context.getString(R.string.notification_action_snooze),
+                actionIntent(context, ReminderActionReceiver.ACTION_SNOOZE, todoId, title, description)
+            )
             .build()
 
         notificationManager.notify(todoId, notification)
+    }
+
+    /**
+     * What one of the notification's buttons sends to [ReminderActionReceiver]. Each button has its
+     * own action, which is what keeps the two from being one PendingIntent — they share the task id
+     * as their request code, and extras do not tell PendingIntents apart.
+     */
+    private fun actionIntent(
+        context: Context,
+        action: String,
+        todoId: Int,
+        title: String,
+        description: String
+    ): PendingIntent {
+        val intent = Intent(context, ReminderActionReceiver::class.java).apply {
+            this.action = action
+            putExtra(ReminderManager.EXTRA_TODO_ID, todoId)
+            putExtra(ReminderManager.EXTRA_TITLE, title)
+            putExtra(ReminderManager.EXTRA_DESCRIPTION, description)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            todoId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 }
 

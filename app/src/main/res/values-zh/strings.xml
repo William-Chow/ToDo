@@ -81,4 +81,6 @@
     <!-- Notifications -->
     <string name="notification_channel_name">任务提醒</string>
     <string name="notification_default_title">任务提醒</string>
+    <string name="notification_action_done">完成</string>
+    <string name="notification_action_snooze">稍后提醒</string>
 </resources>

@@ -41,6 +41,11 @@
             android:name=".notification.ReminderReceiver"
             android:exported="false" />
 
+        <!-- The Done and Snooze buttons on a reminder notification. -->
+        <receiver
+            android:name=".notification.ReminderActionReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".notification.BootReceiver"
             android:enabled="true"
