@@ -24,8 +24,8 @@ android {
         applicationId = "com.menu.my.todo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.3"
+        versionCode = 6
+        versionName = "1.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,7 +45,12 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release")
-            isMinifyEnabled = false
+            // Play counts an unshrunk, unobfuscated bundle against the app ("DEX code optimization
+            // is below our threshold", due February 2027). The stored todo list survives this only
+            // because proguard-rules.pro keeps the model's field names — see the note there. The
+            // mapping file R8 writes goes into the bundle, so Play can still read stack traces.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
