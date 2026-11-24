@@ -14,6 +14,9 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="theme_dynamic">Dynamic color</string>
+    <string name="action_more">More options</string>
+    <string name="action_privacy_policy">Privacy policy</string>
+    <string name="privacy_policy_unavailable">No app to open the privacy policy with.</string>
     <!-- Reopens the ad consent form; only where that has to be offered. -->
     <string name="action_privacy_options">Privacy options</string>
     <string name="privacy_options_unavailable">Couldn\'t open privacy options. Try again later.</string>

@@ -41,7 +41,7 @@ The app uses the Google Mobile Ads SDK (AdMob) to show a banner ad and an occasi
 - how you interact with the app and its ads, such as app launches, taps and video views
 - diagnostic information, such as app launch time, hang rate and energy usage
 
-From version 1.4, in the European Economic Area, the United Kingdom, Switzerland and other places where the law requires it, the app asks for your consent through Google's consent form before requesting ads. Where this applies, you can change your choice at any time with the **Privacy options** button in the app. Your choice is stored on your phone and sent with ad requests. Anywhere, you can reset or delete your advertising ID, or limit ad personalization, in your phone's settings.
+From version 1.4, in the European Economic Area, the United Kingdom, Switzerland and other places where the law requires it, the app asks for your consent through Google's consent form before requesting ads. Where this applies, you can change your choice at any time with **Privacy options** in the app's menu. Your choice is stored on your phone and sent with ad requests. Anywhere, you can reset or delete your advertising ID, or limit ad personalization, in your phone's settings.
 
 Google handles this data under its own policies, and may share it with advertising partners as described in the consent form. See [how Google uses information from apps that use its services](https://policies.google.com/technologies/partner-sites) and [Google's Privacy Policy](https://policies.google.com/privacy).
 

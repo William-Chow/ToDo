@@ -3,11 +3,13 @@ package com.menu.my.todo.ui.screens
 import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
@@ -50,8 +52,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Today
@@ -115,6 +117,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.net.toUri
 import com.google.android.gms.ads.MobileAds
 import com.menu.my.todo.BuildConfig
 import com.menu.my.todo.R
@@ -174,6 +177,7 @@ fun TodoListScreen(
     val undoLabel = stringResource(R.string.snackbar_undo)
     var sortMenuOpen by remember { mutableStateOf(false) }
     var themeMenuOpen by remember { mutableStateOf(false) }
+    var moreMenuOpen by remember { mutableStateOf(false) }
 
     // Manual sort is the only order the user owns, so it is the only one that can be dragged.
     val listState = rememberLazyListState()
@@ -191,11 +195,6 @@ fun TodoListScreen(
                         val context = LocalContext.current
                         IconButton(onClick = { MobileAds.openAdInspector(context) { } }) {
                             Icon(Icons.Default.BugReport, contentDescription = stringResource(R.string.action_ad_inspector), tint = MaterialTheme.colorScheme.onPrimary)
-                        }
-                    }
-                    if (privacyOptionsRequired) {
-                        IconButton(onClick = onPrivacyOptions) {
-                            Icon(Icons.Default.PrivacyTip, contentDescription = stringResource(R.string.action_privacy_options), tint = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                     Box {
@@ -218,6 +217,24 @@ fun TodoListScreen(
                             CheckableMenuItem(stringResource(R.string.theme_dark), ThemeMode.DARK, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                 CheckableMenuItem(stringResource(R.string.theme_dynamic), ThemeMode.DYNAMIC, themeMode) { onThemeModeChange(it); themeMenuOpen = false }
+                            }
+                        }
+                    }
+                    Box {
+                        val context = LocalContext.current
+                        IconButton(onClick = { moreMenuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.action_more), tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        DropdownMenu(expanded = moreMenuOpen, onDismissRequest = { moreMenuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_privacy_policy)) },
+                                onClick = { moreMenuOpen = false; openPrivacyPolicy(context) }
+                            )
+                            if (privacyOptionsRequired) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_privacy_options)) },
+                                    onClick = { moreMenuOpen = false; onPrivacyOptions() }
+                                )
                             }
                         }
                     }
@@ -1260,6 +1277,21 @@ internal fun undatedReminderForAdvance(
         now = now,
         zone = zone
     )
+}
+
+// ---- Privacy policy --------------------------------------------------------
+
+/** The page Play lists for the app, which Play also wants reachable from inside it. */
+private const val PRIVACY_POLICY_URL = "https://github.com/William-Chow/ToDo/blob/main/PRIVACY.md"
+
+private fun openPrivacyPolicy(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, PRIVACY_POLICY_URL.toUri())
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.privacy_policy_unavailable, Toast.LENGTH_LONG).show()
+    }
 }
 
 // ---- Permission helpers ---------------------------------------------------
