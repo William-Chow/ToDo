@@ -13,6 +13,9 @@
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
     <string name="theme_dynamic">动态取色</string>
+    <!-- Reopens the ad consent form; only where that has to be offered. -->
+    <string name="action_privacy_options">隐私选项</string>
+    <string name="privacy_options_unavailable">无法打开隐私选项，请稍后再试。</string>
     <string name="action_add_task">添加任务</string>
     <string name="search_hint">搜索任务</string>
     <string name="search_clear">清除搜索</string>

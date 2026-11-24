@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Today
@@ -158,7 +159,12 @@ fun TodoListScreen(
     onDeleteTodo: (Int) -> Unit,
     onUndoDelete: () -> Unit,
     onMoveTodo: (fromId: Int, toId: Int) -> Unit,
-    onThemeModeChange: (ThemeMode) -> Unit
+    onThemeModeChange: (ThemeMode) -> Unit,
+    /** Whether ad consent allows the banner. */
+    adsAllowed: Boolean = false,
+    /** Set where the law gives the user a way back into the ad consent form; hidden elsewhere. */
+    privacyOptionsRequired: Boolean = false,
+    onPrivacyOptions: () -> Unit = {}
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -185,6 +191,11 @@ fun TodoListScreen(
                         val context = LocalContext.current
                         IconButton(onClick = { MobileAds.openAdInspector(context) { } }) {
                             Icon(Icons.Default.BugReport, contentDescription = stringResource(R.string.action_ad_inspector), tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                    if (privacyOptionsRequired) {
+                        IconButton(onClick = onPrivacyOptions) {
+                            Icon(Icons.Default.PrivacyTip, contentDescription = stringResource(R.string.action_privacy_options), tint = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                     Box {
@@ -215,7 +226,8 @@ fun TodoListScreen(
         },
         bottomBar = {
             Column {
-                AdBanner()
+                // Left out of the tree rather than left to fail, so no request is made without consent.
+                if (adsAllowed) AdBanner()
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     TodoCategory.entries.forEach { category ->
                         NavigationBarItem(

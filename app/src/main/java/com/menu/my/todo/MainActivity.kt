@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.ads.MobileAds
+import com.menu.my.todo.ads.AdConsent
 import com.menu.my.todo.ads.InterstitialAdController
 import com.menu.my.todo.ui.screens.TodoInputScreen
 import com.menu.my.todo.ui.screens.TodoListScreen
@@ -33,22 +35,17 @@ class MainActivity : ComponentActivity() {
     // Android 13+ (API 33) requires POST_NOTIFICATIONS to be granted at runtime, otherwise
     // reminder notifications are silently suppressed. The result is ignored here: if denied,
     // the app still works, it just won't show notifications until the user grants it in settings.
+    // Ad consent waits for the answer, so that its form never opens underneath this dialog.
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { gatherAdConsent() }
 
     private lateinit var interstitialAds: InterstitialAdController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        requestNotificationPermissionIfNeeded()
         interstitialAds = InterstitialAdController(this)
-        // Initializing the ads SDK does disk and network I/O, so keep it off the main thread.
-        // Banner requests made before this finishes are queued by the SDK, not dropped.
-        lifecycleScope.launch(Dispatchers.IO) {
-            MobileAds.initialize(this@MainActivity)
-            withContext(Dispatchers.Main) { interstitialAds.preload() }
-        }
+        if (!requestNotificationPermissionIfNeeded()) gatherAdConsent()
         setContent {
             val viewModel: TodoViewModel = viewModel()
             // The day can turn over while the app is away — caught up as soon as it is back on
@@ -65,12 +62,45 @@ class MainActivity : ComponentActivity() {
                 }
             }
             TodoTheme(themeMode = viewModel.themeMode) {
-                TodoApp(viewModel, onTaskSaved = { interstitialAds.onTaskSaved() })
+                TodoApp(
+                    viewModel,
+                    adsAllowed = AdConsent.canRequestAds,
+                    privacyOptionsRequired = AdConsent.privacyOptionsRequired,
+                    onPrivacyOptions = { showPrivacyOptions() },
+                    onTaskSaved = { interstitialAds.onTaskSaved() }
+                )
             }
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
+    /** Consent first, ads second: the order is what the policy is about. */
+    private fun gatherAdConsent() {
+        AdConsent.gather(this) { startAdsIfAllowed() }
+    }
+
+    /** Safe to call more than once: the SDK starts once and [InterstitialAdController] holds one ad. */
+    private fun startAdsIfAllowed() {
+        if (!AdConsent.canRequestAds) return
+        // Initializing the ads SDK does disk and network I/O, so keep it off the main thread.
+        // Banner requests made before this finishes are queued by the SDK, not dropped.
+        lifecycleScope.launch(Dispatchers.IO) {
+            MobileAds.initialize(this@MainActivity)
+            withContext(Dispatchers.Main) { interstitialAds.preload() }
+        }
+    }
+
+    private fun showPrivacyOptions() {
+        AdConsent.showPrivacyOptions(this) { shown ->
+            if (!shown) {
+                Toast.makeText(this, R.string.privacy_options_unavailable, Toast.LENGTH_SHORT).show()
+            }
+            interstitialAds.onConsentChanged()
+            startAdsIfAllowed()
+        }
+    }
+
+    /** Whether a request was made, whose answer the launcher's callback will get. */
+    private fun requestNotificationPermissionIfNeeded(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 this,
@@ -78,13 +108,21 @@ class MainActivity : ComponentActivity() {
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return true
             }
         }
+        return false
     }
 }
 
 @Composable
-fun TodoApp(viewModel: TodoViewModel, onTaskSaved: () -> Unit = {}) {
+fun TodoApp(
+    viewModel: TodoViewModel,
+    adsAllowed: Boolean = false,
+    privacyOptionsRequired: Boolean = false,
+    onPrivacyOptions: () -> Unit = {},
+    onTaskSaved: () -> Unit = {}
+) {
     when (viewModel.currentScreen) {
         Screen.List -> {
             val (todayDone, todayTotal) = viewModel.todayProgress()
@@ -112,7 +150,10 @@ fun TodoApp(viewModel: TodoViewModel, onTaskSaved: () -> Unit = {}) {
                 onDeleteTodo = { viewModel.deleteTodo(it) },
                 onUndoDelete = { viewModel.undoDelete() },
                 onMoveTodo = { fromId, toId -> viewModel.moveTodo(fromId, toId) },
-                onThemeModeChange = { viewModel.setTheme(it) }
+                onThemeModeChange = { viewModel.setTheme(it) },
+                adsAllowed = adsAllowed,
+                privacyOptionsRequired = privacyOptionsRequired,
+                onPrivacyOptions = onPrivacyOptions
             )
         }
 

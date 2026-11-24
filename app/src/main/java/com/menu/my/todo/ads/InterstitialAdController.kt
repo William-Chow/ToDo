@@ -18,6 +18,8 @@ const val AD_LOG_TAG = "TodoAds"
  * Saving is the app's most frequent action, so showing an ad every time would be both hostile and
  * a good way to attract an invalid-traffic review. Both limits below have to pass before an ad is
  * shown, and the counters only reset once an ad is actually displayed.
+ *
+ * Nothing is requested or shown while [AdConsent] does not allow ads.
  */
 class InterstitialAdController(private val activity: Activity) {
 
@@ -30,7 +32,7 @@ class InterstitialAdController(private val activity: Activity) {
     private var lastShownAt: Long? = null
 
     fun preload() {
-        if (loading || ad != null) return
+        if (!AdConsent.canRequestAds || loading || ad != null) return
         loading = true
         InterstitialAd.load(
             activity,
@@ -52,9 +54,16 @@ class InterstitialAdController(private val activity: Activity) {
         )
     }
 
+    /** Call when the user may have changed their consent: an ad fetched under the old answer is dropped. */
+    fun onConsentChanged() {
+        ad = null
+        preload()
+    }
+
     /** Call after a task is saved. Shows an ad only if both rate limits allow it. */
     fun onTaskSaved() {
         savesSinceLastAd++
+        if (!AdConsent.canRequestAds) return
         val ready = ad ?: return preload()
         val enoughSaves = savesSinceLastAd >= MIN_SAVES_BETWEEN_ADS
         val enoughTime = lastShownAt?.let {

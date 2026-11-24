@@ -14,6 +14,9 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="theme_dynamic">Dynamic color</string>
+    <!-- Reopens the ad consent form; only where that has to be offered. -->
+    <string name="action_privacy_options">Privacy options</string>
+    <string name="privacy_options_unavailable">Couldn\'t open privacy options. Try again later.</string>
     <string name="action_add_task">Add task</string>
     <string name="search_hint">Search tasks</string>
     <string name="search_clear">Clear search</string>
